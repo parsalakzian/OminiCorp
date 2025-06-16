@@ -4,6 +4,11 @@
 #support-url: https://t.me/parsalakzian
 #profile-web-page-url: https://ominicorp.com.com
 
+
+//subscription-userinfo: upload=0; download=0; total=10737418240000000; expire=2546249531
+//support-url: https://t.me/hiddify
+//profile-web-page-url: https://hiddify.com
+
 vless://PARSA@www.x8ss0.com:80?path=%2FV2ray%3Fed%3D443&security=none&encryption=none&type=ws#GR Main
 
 vless://0cf36e2e-d009-44e8-8c12-c32ded52c1cc@tgrns3.bidaplay.ir:8080?path=%2F&security=&encryption=none&type=ws#GR Backup
