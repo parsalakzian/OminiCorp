@@ -1,11 +1,9 @@
-#profile-title: Omixy 1
-#profile-update-interval: 1
-#subscription-userinfo: upload=O; download=O; totl=1024; expire=1752667485
-#support-url: https://t.me/parsalakzian
-#profile-web-page-url: https://ominicorp.com.com
+//profile-title: Omixy 1
+//profile-update-interval: 2
 
 
-//subscription-userinfo: upload=0; download=0; total=10737418240000000; expire=2546249531
+
+//subscription-userinfo: upload=0; download=0; total=10737418240000000; expire=1752667485
 //support-url: https://t.me/hiddify
 //profile-web-page-url: https://hiddify.com
 
