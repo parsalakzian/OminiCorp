@@ -1,11 +1,8 @@
 //profile-title: Omixy 1
 //profile-update-interval: 2
-
-
-
-//subscription-userinfo: upload=0; download=0; total=10737418240000000; expire=1752667485
-//support-url: https://t.me/hiddify
-//profile-web-page-url: https://hiddify.com
+//subscription-userinfo: upload=0; download=0; total=1024; expire=1752667485
+//support-url: https://t.me/parsalakzian
+//profile-web-page-url: https://ominicorp.com
 
 vless://PARSA@www.x8ss0.com:80?path=%2FV2ray%3Fed%3D443&security=none&encryption=none&type=ws#GR Main
 
