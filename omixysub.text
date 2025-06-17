@@ -6,21 +6,21 @@
 
 vless://PARSA@www.x8ss0.com:80?path=%2FV2ray%3Fed%3D443&security=none&encryption=none&type=ws#GR Main
 
-#vless://0cf36e2e-d009-44e8-8c12-c32ded52c1cc@tgrns3.bidaplay.ir:8080?path=%2F&security=&encryption=none&type=ws#GR Backup
+vless://0cf36e2e-d009-44e8-8c12-c32ded52c1cc@tgrns3.bidaplay.ir:8080?path=%2F&security=&encryption=none&type=ws#GR Backup
 
-#vless://0cf36e2e-d009-44e8-8c12-c32ded52c1cc@tnlns3.bidaplay.ir:8081?path=%2F&security=&encryption=none&type=ws#NL Backup
+vless://0cf36e2e-d009-44e8-8c12-c32ded52c1cc@tnlns3.bidaplay.ir:8081?path=%2F&security=&encryption=none&type=ws#NL Backup
 
-#vless://0cf36e2e-d009-44e8-8c12-c32ded52c1cc@dtrns1.vertalist.ir:5553?mode=gun&security=reality&encryption=none&pbk=gvDhUqEp10dXWF5BaiMIErV4QLgQrAiNpS4oUbhYdXU&fp=chrome&type=grpc&sni=stackoverflow.com&sid=35fb2cbf44a82276#TR Backup
+vless://0cf36e2e-d009-44e8-8c12-c32ded52c1cc@dtrns1.vertalist.ir:5553?mode=gun&security=reality&encryption=none&pbk=gvDhUqEp10dXWF5BaiMIErV4QLgQrAiNpS4oUbhYdXU&fp=chrome&type=grpc&sni=stackoverflow.com&sid=35fb2cbf44a82276#TR Backup
 
-#vless://d895495c-d1ed-46e4-9235-35c54c9ed901@nl.spirako.com:443?security=reality&encryption=none&pbk=0hH6R90pSxwm7nZPGtJJcJFhwCXU3Rvf-wcEHE7hczo&headerType=none&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=website.com#NL Backup2
+vless://d895495c-d1ed-46e4-9235-35c54c9ed901@nl.spirako.com:443?security=reality&encryption=none&pbk=0hH6R90pSxwm7nZPGtJJcJFhwCXU3Rvf-wcEHE7hczo&headerType=none&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=website.com#NL Backup2
 
-#vless://c7727d83-ffb2-4372-aa3a-e8fab1b9c40c@85.9.123.117:8083?security=&encryption=none&headerType=none&type=tcp#GR Tunnel 
+vless://c7727d83-ffb2-4372-aa3a-e8fab1b9c40c@85.9.123.117:8083?security=&encryption=none&headerType=none&type=tcp#GR Tunnel 
 
-#vless://c7727d83-ffb2-4372-aa3a-e8fab1b9c40c@85.9.123.117:443?path=%2F&security=tls&encryption=none&host=Gr.MatsurIfY341.ir&type=ws&sni=Gr.MatsurIfY341.ir#GR Tunnel2
+vless://c7727d83-ffb2-4372-aa3a-e8fab1b9c40c@85.9.123.117:443?path=%2F&security=tls&encryption=none&host=Gr.MatsurIfY341.ir&type=ws&sni=Gr.MatsurIfY341.ir#GR Tunnel2
 
-#vless://8758c7c5-f9bf-4402-9d5c-3f2d03804351@st3.pmme5.top:21443?security=&encryption=none&host=isna.ir&headerType=http&type=tcp#GR Tunnel3
+vless://8758c7c5-f9bf-4402-9d5c-3f2d03804351@st3.pmme5.top:21443?security=&encryption=none&host=isna.ir&headerType=http&type=tcp#GR Tunnel3
 
-#vless://8758c7c5-f9bf-4402-9d5c-3f2d03804351@st2.pmme5.top:20443?security=&encryption=none&host=uptvs.com&headerType=http&type=tcp#FR Tunnel
+vless://8758c7c5-f9bf-4402-9d5c-3f2d03804351@st2.pmme5.top:20443?security=&encryption=none&host=uptvs.com&headerType=http&type=tcp#FR Tunnel
 
-#vless://8758c7c5-f9bf-4402-9d5c-3f2d03804351@st5.pmme5.top:24443?security=&encryption=none&host=cafebazaar.ir&headerType=http&type=tcp#GR IR
+vless://8758c7c5-f9bf-4402-9d5c-3f2d03804351@st5.pmme5.top:24443?security=&encryption=none&host=cafebazaar.ir&headerType=http&type=tcp#GR IR
 
