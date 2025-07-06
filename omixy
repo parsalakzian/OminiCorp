@@ -1,5 +1,6 @@
 {
     "portocols":[
-        {"name":"V2ray", "id":"10", "active":true, "uiah":5, "url":"http://ominicorp.com/omixysub.text"}
+        {"name":"V2ray", "id":"10", "active":true, "uiah":5, "url":"http://ominicorp.com/omixysub.text"},
+        {"name":"Warp", "id":"100", "active":false, "uiah":5, "url":"https://raw.githubusercontent.com/hiddify/hiddify-app/refs/tags/v2.5.7/test.configs/warp"}
     ]
 }
