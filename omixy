@@ -1,6 +1,6 @@
 {
     "portocols":[
-        {"name":"V2ray", "id":"10", "active":true, "uiah":5, "url":"http://ominicorp.com/omixysub.text"},
-        {"name":"WarpPro+", "id":"100", "active":false, "uiah":5, "url":"http://ominicorp.com/warp.text"}
+        {"name":"V2ray", "id":"10", "active":true, "uiah":5, "url":"http://ominicorp.com/omixysub.text", "delete":false},
+        {"name":"WarpPro+", "id":"100", "active":false, "uiah":5, "url":"http://ominicorp.com/warp.text", "delete":true}
     ]
 }
