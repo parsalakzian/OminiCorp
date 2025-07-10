@@ -5,11 +5,20 @@
 
 vless://GOD@www.x8ss0.com:8/?type=ws&encryption=none&path=%2FV2ray%3Fed%3D443#OMIXY
 
-vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@MTN.QiSvn.iR:500?security=none&encryption=none&host=speedtest.net&headerType=http&type=tcp#OMIXY2
-vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@MTN.QiSvn.iR:500?security=none&encryption=none&host=speedtest.net&headerType=http&type=tcp#OMIXY3
-vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@svnteam.misvn.ir:2082?path=%2F%3Fed%3D2052&security=none&encryption=none&host=www.speedtest.net.tps.debian.org.gr.websites.nisvn.ir&type=ws#OMIXY4
-vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@svnteam.misvn.ir:2082?path=%2F%3Fed%3D2052&security=none&encryption=none&host=www.speedtest.net.tps.debian.org.gr.websites.nisvn.ir&type=ws#OMIXY5
-vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@MTN.MiSvn.iR:443?security=reality&encryption=none&pbk=tw6uAbjXzRSIKChb6pDbHVNjnU9Don4hbv6dHRkmJx8&headerType=none&fp=firefox&type=tcp&flow=xtls-rprx-vision&sni=tgju.org&sid=e54b5ad736ae4c38#OMIXY6
+
+
+
+
+vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@all.yasharteam.com:666?security=&encryption=none&headerType=none&type=tcp#OMIXY2
+
+vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@104.16.1.106:2082?path=%2F%3Fed%3D2052&security=&encryption=none&host=mrdnzdtnbkwbdfsqoncu.yaSharTeam.com.&type=ws#OMIXY3
+
+vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@all.yasharteam.com:500?security=&encryption=none&host=speedtest.net&headerType=http&type=tcp#OMIXY4
+
+vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@all-fastly.subscripshn.sbs:80?mode=auto&path=%2FSvnProBot%3Fed%3D8443&security=&encryption=none&extra=%7B%22scMaxEachPostBytes%22%3A%221000000%22%2C%22xPaddingBytes%22%3A%22100-1000%22%7D&host=globally-renewing-iguana.global.ssl.fastly.net&type=xhttp#OMIXY5
+
+vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@all-fastly.subscripshn.sbs:80?mode=auto&path=%2FSvnProBot%3Fed%3D8443&security=&encryption=none&extra=%7B%22scMaxEachPostBytes%22%3A%221000000%22%2C%22xPaddingBytes%22%3A%22100-1000%22%7D&host=explicitly-loyal-lemur.global.ssl.fastly.net&type=xhttp#OMIXY6
+
 vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@MCI.MiSvn.iR:443?security=reality&encryption=none&pbk=tw6uAbjXzRSIKChb6pDbHVNjnU9Don4hbv6dHRkmJx8&headerType=none&fp=firefox&type=tcp&flow=xtls-rprx-vision&sni=tgju.org&sid=e54b5ad736ae4c38#OMIXY7
 
 
