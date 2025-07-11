@@ -9,17 +9,13 @@ vless://GOD@www.x8ss0.com:8/?type=ws&encryption=none&path=%2FV2ray%3Fed%3D443#OM
 
 
 
-vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@all.yasharteam.com:666?security=&encryption=none&headerType=none&type=tcp#OMIXY2
+vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@all-fastly.subscripshn.sbs:80?mode=auto&path=%2FSvnProBot%3Fed%3D8443&security=none&encryption=none&extra=%7B%22scMaxEachPostBytes%22%3A%221000000%22%2C%22xPaddingBytes%22%3A%22100-1000%22%7D&host=explicitly-loyal-lemur.global.ssl.fastly.net&type=xhttp#OMIXY2
+vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@all-fastly.subscripshn.sbs:80?mode=auto&path=%2FSvnProBot%3Fed%3D8443&security=none&encryption=none&extra=%7B%22scMaxEachPostBytes%22%3A%221000000%22%2C%22xPaddingBytes%22%3A%22100-1000%22%7D&host=explicitly-loyal-leomur.global.ssl.fastly.net&type=xhttp#OMIXY3
+vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@all-fastly.subscripshn.sbs:80?mode=auto&path=%2FSvnProBot%3Fed%3D8443&security=none&encryption=none&extra=%7B%22scMaxEachPostBytes%22%3A%221000000%22%2C%22xPaddingBytes%22%3A%22100-1000%22%7D&host=Zoro.Net&type=xhttp#OMIXY4
+vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@all.yasharteam.com:500?security=none&encryption=none&host=speedtest.net&headerType=http&type=tcp#OMIXY5
+vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@all.yasharteam.com:666?security=none&encryption=none&headerType=none&type=tcp#OMIXY6
+vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@104.16.1.106:2082?path=%2F%3Fed%3D2052&security=none&encryption=none&host=mrdnzdtnbkwbdfsqoncu.yaSharTeam.com.&type=ws#OMIXY7
 
-vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@104.16.1.106:2082?path=%2F%3Fed%3D2052&security=&encryption=none&host=mrdnzdtnbkwbdfsqoncu.yaSharTeam.com.&type=ws#OMIXY3
-
-vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@all.yasharteam.com:500?security=&encryption=none&host=speedtest.net&headerType=http&type=tcp#OMIXY4
-
-vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@all-fastly.subscripshn.sbs:80?mode=auto&path=%2FSvnProBot%3Fed%3D8443&security=&encryption=none&extra=%7B%22scMaxEachPostBytes%22%3A%221000000%22%2C%22xPaddingBytes%22%3A%22100-1000%22%7D&host=globally-renewing-iguana.global.ssl.fastly.net&type=xhttp#OMIXY5
-
-vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@all-fastly.subscripshn.sbs:80?mode=auto&path=%2FSvnProBot%3Fed%3D8443&security=&encryption=none&extra=%7B%22scMaxEachPostBytes%22%3A%221000000%22%2C%22xPaddingBytes%22%3A%22100-1000%22%7D&host=explicitly-loyal-lemur.global.ssl.fastly.net&type=xhttp#OMIXY6
-
-vless://d86d7e91-903e-4a4a-8ce9-9569ecd3d835@MCI.MiSvn.iR:443?security=reality&encryption=none&pbk=tw6uAbjXzRSIKChb6pDbHVNjnU9Don4hbv6dHRkmJx8&headerType=none&fp=firefox&type=tcp&flow=xtls-rprx-vision&sni=tgju.org&sid=e54b5ad736ae4c38#OMIXY7
 
 
 vless://c7d5b7f2-1007-4008-afb8-57adc8d6c55e@vrp1.bidacom.ir:8443?security=&encryption=none&host=google.com&headerType=http&type=tcp#OMIXY8
