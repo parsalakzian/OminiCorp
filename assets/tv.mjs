@@ -4,6 +4,7 @@ const SLIDE_DURATION = 9000;
 
 export function activateDisplay(services) {
   const display = document.querySelector('#display');
+  const screen = display.querySelector('.tv-screen');
   const slide = display.querySelector('.slide');
   const decoration = display.querySelector('.tv-icon');
   const progress = display.querySelector('.tv-progress');
@@ -80,12 +81,12 @@ export function activateDisplay(services) {
   full.addEventListener('click', async () => {
     try {
       status.textContent = '';
-      if (document.fullscreenElement === display) await document.exitFullscreen();
-      else await display.requestFullscreen();
+      if (document.fullscreenElement === screen) await document.exitFullscreen();
+      else await screen.requestFullscreen();
     } catch { status.classList.remove('sr-only'); status.textContent = full.dataset.error; }
   });
   document.addEventListener('fullscreenchange', () => {
-    fullLabel.textContent = document.fullscreenElement === display ? full.dataset.exit : full.dataset.fullscreen;
+    fullLabel.textContent = document.fullscreenElement === screen ? full.dataset.exit : full.dataset.fullscreen;
   });
   display.addEventListener('keydown', (event) => {
     if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
@@ -95,7 +96,7 @@ export function activateDisplay(services) {
   });
   display.addEventListener('close', () => {
     setPlaying(false);
-    if (document.fullscreenElement === display) document.exitFullscreen().catch(() => {});
+    if (document.fullscreenElement === screen) document.exitFullscreen().catch(() => {});
   });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { releaseWakeLock(); schedule(); }

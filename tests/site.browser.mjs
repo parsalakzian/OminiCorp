@@ -107,3 +107,12 @@ test('contact forms reflect enabled server, submit consent, and show delivery er
   await expect(request.getByRole('status')).toContainText('Could not send');
   await expect(request.getByLabel('Project brief')).toHaveValue('A brief for our new project.');
 });
+
+test('TV enters and exits fullscreen from its display controls', async ({ page }) => {
+  await page.goto('/?tv=1');
+  const button = page.locator('[data-fullscreen]');
+  await button.click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.className)).toBe('tv-screen');
+  await button.click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
+});

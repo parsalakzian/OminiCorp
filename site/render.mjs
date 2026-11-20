@@ -112,6 +112,7 @@ function dialogs(copy) {
   <div class="choices">${copy.goals.map((goal, i) => `<button type="button" aria-pressed="false" data-goal="${i}">${text(goal)}${arrow}</button>`).join('')}</div>
   <div class="guide-result" hidden><h3>${text(copy.recommendation)}</h3><ul></ul></div><p class="sr-only" role="status" data-guide-status></p>`),
     `<dialog id="display" class="display" aria-labelledby="display-title">
+  <div class="tv-screen">
   <div class="tv-sky" aria-hidden="true"></div>
   <header class="tv-header">${wordmark(copy)}<h2 id="display-title">${text(copy.tvLabel)}</h2><form method="dialog"><button type="submit" class="icon-button" aria-label="${text(copy.close)}" autofocus>${icon('close')}</button></form></header>
   <div class="tv-stage">
@@ -120,6 +121,7 @@ function dialogs(copy) {
   </div>
   <div class="tv-progress" aria-hidden="true"><span></span></div>
   <div class="display-controls"><button class="button button-muted" type="button" data-slide="-1">${arrow}${text(copy.previous)}</button><button class="button button-outline" type="button" data-play="${text(copy.play)}" data-pause="${text(copy.pause)}">${text(copy.play)}</button><button class="button button-muted" type="button" data-slide="1">${text(copy.next)}${arrow}</button><button class="button button-muted tv-full" type="button" data-fullscreen="${text(copy.fullscreen)}" data-exit="${text(copy.exitFullscreen)}" data-error="${text(copy.fullscreenUnavailable)}">${icon('tv')}${text(copy.fullscreen)}</button><p class="sr-only" role="status" data-full-status></p></div>
+  </div>
 </dialog>`,
   ].join('\n');
 }
