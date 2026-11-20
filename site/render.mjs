@@ -1,5 +1,6 @@
 import { contacts, getServices, locales } from './content.mjs';
 import { icon } from './icons.mjs';
+import { renderForms } from './forms.mjs';
 
 const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const text = (value) => String(value).replace(/[&<>"']/g, (char) => entities[char]);
@@ -82,7 +83,7 @@ function about(copy) {
 </section>`;
 }
 
-function contact(copy) {
+function contact(copy, language) {
   return `<section class="shell panel-section contact" id="contacts" aria-labelledby="contact-title">
   <div class="section-heading">
     <div>${eyebrow(copy.contactLabel, '03')}<h2 id="contact-title">${text(copy.contactHeading)}</h2></div>
@@ -92,6 +93,7 @@ function contact(copy) {
     <span class="tile">${icon(id)}</span><span><strong>${text(copy.contactNames[i])}</strong><bdi>${text(label)}</bdi></span>${icon('upRight', 'contact-arrow')}
   </a>`).join('\n')}</div>
   <a class="secondary-contact" href="tel:+989108681553">${text(copy.secondary)}: <bdi>+98 910 868 1553</bdi></a>
+  ${renderForms(language)}
 </section>`;
 }
 
@@ -109,8 +111,16 @@ function dialogs(copy) {
     dialog('guide', copy.guideHeading, copy.close, `<p>${text(copy.guideBody)}</p>
   <div class="choices">${copy.goals.map((goal, i) => `<button type="button" aria-pressed="false" data-goal="${i}">${text(goal)}${arrow}</button>`).join('')}</div>
   <div class="guide-result" hidden><h3>${text(copy.recommendation)}</h3><ul></ul></div><p class="sr-only" role="status" data-guide-status></p>`),
-    dialog('display', copy.tv, copy.close, `<div class="slide" aria-live="polite"></div>
-  <div class="display-controls"><button class="button button-muted" type="button" data-slide="-1">${text(copy.previous)}</button><button class="button button-muted" type="button" data-play="${text(copy.play)}" data-pause="${text(copy.pause)}">${text(copy.play)}</button><button class="button button-primary" type="button" data-slide="1">${text(copy.next)}</button></div>`, ' class="display"'),
+    `<dialog id="display" class="display" aria-labelledby="display-title">
+  <div class="tv-sky" aria-hidden="true"></div>
+  <header class="tv-header">${wordmark(copy)}<h2 id="display-title">${text(copy.tvLabel)}</h2><form method="dialog"><button type="submit" class="icon-button" aria-label="${text(copy.close)}" autofocus>${icon('close')}</button></form></header>
+  <div class="tv-stage">
+    <div class="slide" aria-live="polite"></div>
+    <div class="tv-art" aria-hidden="true"><div class="tv-halo"></div><div class="tv-orbit"></div><div class="tv-orbit tv-orbit-offset"></div><img src="assets/media/hero.webp" width="1150" height="859" alt="" loading="lazy"><span class="tv-icon"></span></div>
+  </div>
+  <div class="tv-progress" aria-hidden="true"><span></span></div>
+  <div class="display-controls"><button class="button button-muted" type="button" data-slide="-1">${arrow}${text(copy.previous)}</button><button class="button button-outline" type="button" data-play="${text(copy.play)}" data-pause="${text(copy.pause)}">${text(copy.play)}</button><button class="button button-muted" type="button" data-slide="1">${text(copy.next)}${arrow}</button><button class="button button-muted tv-full" type="button" data-fullscreen="${text(copy.fullscreen)}" data-exit="${text(copy.exitFullscreen)}" data-error="${text(copy.fullscreenUnavailable)}">${icon('tv')}${text(copy.fullscreen)}</button><p class="sr-only" role="status" data-full-status></p></div>
+</dialog>`,
   ].join('\n');
 }
 
@@ -129,7 +139,10 @@ export function render(language) {
   <link rel="alternate" hreflang="${isFa ? 'en' : 'fa'}" href="${isFa ? 'en.html' : 'index.html'}">
   <link rel="icon" type="image/webp" href="assets/media/logo.webp">
   <link rel="stylesheet" href="assets/site.css">
+  <link rel="stylesheet" href="assets/forms.css">
+  <link rel="stylesheet" href="assets/tv.css">
   <script type="module" src="assets/site.mjs"></script>
+  <script type="module" src="assets/forms.mjs"></script>
 </head>
 <body id="top">
 <a class="skip-link" href="#main">${text(copy.skip)}</a>
@@ -138,7 +151,7 @@ ${header(copy, isFa)}
 ${hero(copy)}
 ${catalog(copy, getServices(language))}
 ${about(copy)}
-${contact(copy)}
+${contact(copy, language)}
 </main>
 <footer class="site-footer"><div class="shell footer-inner">
   <a class="brand" href="#top">${wordmark(copy)}</a><small><bdi>© 2026 OminiCorp.</bdi> ${text(copy.copyright)}</small>

@@ -1,4 +1,5 @@
-import { moveSlide, recommendServices } from './service-guide.mjs';
+import { recommendServices } from './service-guide.mjs';
+import { activateDisplay } from './tv.mjs';
 
 function activateCatalog() {
   const modal = document.querySelector('#details');
@@ -20,7 +21,7 @@ function activateCatalog() {
     });
     details.hidden = true;
     details.after(button);
-    return { id: card.id.slice('service-'.length), title, paragraphs, button };
+    return { id: card.id.slice('service-'.length), title, paragraphs, button, icon: card.querySelector('.tile svg') };
   });
 
   modal.querySelector('[data-contact]').addEventListener('click', (event) => {
@@ -63,49 +64,6 @@ function activateGuide(services) {
       status.textContent = matches.length ? `${result.querySelector('h3').textContent}: ${matches.map(({ title }) => title).join('، ')}` : '';
     });
   }
-}
-
-function activateDisplay(services) {
-  const display = document.querySelector('#display');
-  const slide = display.querySelector('.slide');
-  const play = display.querySelector('[data-play]');
-  let current = 0;
-  let timer;
-
-  function show(offset = 0) {
-    current = moveSlide(current, offset, services.length);
-    const { title, paragraphs } = services[current];
-    const label = document.createElement('span');
-    label.className = 'dialog-id';
-    label.dir = 'ltr';
-    label.textContent = `${String(current + 1).padStart(2, '0')} / ${String(services.length).padStart(2, '0')}`;
-    const heading = document.createElement('h3');
-    heading.textContent = title;
-    slide.replaceChildren(label, heading, ...paragraphs.map((node) => node.cloneNode(true)));
-  }
-
-  function stop() {
-    clearInterval(timer);
-    timer = undefined;
-    slide.setAttribute('aria-live', 'polite');
-    play.textContent = play.dataset.play;
-  }
-
-  display.querySelectorAll('[data-slide]').forEach((button) => {
-    button.addEventListener('click', () => {
-      stop();
-      show(Number(button.dataset.slide));
-    });
-  });
-  play.addEventListener('click', () => {
-    if (timer !== undefined) return stop();
-    slide.setAttribute('aria-live', 'off');
-    play.textContent = play.dataset.pause;
-    timer = setInterval(() => show(1), 6500);
-  });
-  display.addEventListener('close', stop);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); });
-  show();
 }
 
 if (typeof document.querySelector('#guide')?.showModal === 'function') {

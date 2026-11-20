@@ -53,10 +53,10 @@ test('display controls wrap and pause autoplay', async ({ page }) => {
   await page.locator('[data-slide="-1"]').click();
   await expect(slide).toHaveText('Architecture & Build');
   await page.locator('[data-play]').click();
-  await page.clock.runFor(6600);
+  await page.clock.runFor(9100);
   await expect(slide).toHaveText('Software & AI');
   await page.locator('[data-play]').click();
-  await page.clock.runFor(6600);
+  await page.clock.runFor(9100);
   await expect(slide).toHaveText('Software & AI');
   await page.keyboard.press('Escape');
   await expect(page.locator('#display')).not.toBeVisible();
@@ -69,4 +69,41 @@ test('without JavaScript, catalog and contacts still work', async ({ browser }) 
   await expect(page.locator('.service-card details[open] li')).toHaveCount(3);
   await expect(page.locator('.contact-card').first()).toHaveAttribute('href', 'tel:+989054847599');
   await page.close();
+});
+
+test('TV deep link autoplays with reduced-motion support and keyboard controls', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.clock.install();
+  await page.goto('/?tv=1');
+  await expect(page.locator('#display')).toBeVisible();
+  await expect(page.locator('#display')).toHaveClass(/is-playing/);
+  await expect(page.locator('.tv-art img')).toHaveCSS('animation-name', 'none');
+  await page.clock.runFor(9100);
+  await expect(page.locator('#display')).toHaveAttribute('data-scene', 'security');
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#display')).toHaveAttribute('data-scene', 'hardware');
+  await expect(page.locator('#display')).not.toHaveClass(/is-playing/);
+});
+
+test('contact forms reflect enabled server, submit consent, and show delivery errors', async ({ page }) => {
+  await page.route('**/api/forms', (route) => route.fulfill({ json: { code: 'available' } }));
+  await page.route('**/api/request', (route) => route.fulfill({ status: 503, json: { code: 'unavailable' } }));
+  await page.route('**/api/subscribe', (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({ email: 'reader@example.org', consent: true, lang: 'en' });
+    return route.fulfill({ status: 202, json: { code: 'sent' } });
+  });
+  await page.goto('/en.html');
+  const request = page.locator('[data-mail="request"]');
+  const subscribe = page.locator('[data-mail="subscribe"]');
+  await subscribe.getByLabel('Email', { exact: true }).fill('reader@example.org');
+  await subscribe.getByRole('checkbox').check();
+  await subscribe.getByRole('button').click();
+  await expect(subscribe.getByRole('status')).toContainText('confirmation link');
+  await expect(subscribe.getByLabel('Email', { exact: true })).toHaveValue('');
+  await request.getByLabel('Name').fill('Client');
+  await request.getByLabel('Email', { exact: true }).fill('client@example.org');
+  await request.getByLabel('Project brief').fill('A brief for our new project.');
+  await request.getByRole('button').click();
+  await expect(request.getByRole('status')).toContainText('Could not send');
+  await expect(request.getByLabel('Project brief')).toHaveValue('A brief for our new project.');
 });

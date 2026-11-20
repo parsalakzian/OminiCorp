@@ -8,7 +8,7 @@ export default defineConfig({
     launchOptions: { executablePath: process.env.CHROMIUM_EXECUTABLE || undefined },
   },
   webServer: {
-    command: 'node site/dev.mjs',
+    command: 'node server/start.mjs',
     env: { PORT: '4317' },
     url: 'http://127.0.0.1:4317',
   },

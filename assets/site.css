@@ -175,12 +175,6 @@ dialog p { color: var(--muted); margin-block-start: 8px; }
 .guide-result { border-block-start: 1px solid var(--line); padding-block-start: 12px; }
 .guide-result ul { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; list-style: none; }
 .guide-result button { min-height: 44px; }
-.display { width: min(1020px, calc(100% - 28px)); background: radial-gradient(ellipse at top, #203624, var(--panel) 65%); }
-.slide { min-height: 260px; display: grid; align-content: center; gap: 5px; padding-block: 30px; }
-.slide h3 { color: var(--lime); font-size: clamp(27px, 5vw, 67px); line-height: 1.2; }
-.slide p, .slide li { font-size: clamp(15px, 2vw, 23px); }
-.display-controls { display: flex; flex-wrap: wrap; gap: 8px; }
-
 @media (max-width: 1100px) {
   .shell { width: calc(100% - 64px); }
   .hero-layout { min-height: 475px; gap: 24px; }

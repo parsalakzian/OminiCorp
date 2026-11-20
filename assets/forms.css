@@ -1,0 +1,18 @@
+.mail-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 15px; margin-block-start: 24px; }
+.mail-card { min-width: 0; padding: clamp(15px, 3vw, 26px); border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(145deg, #152019, var(--panel) 58%); }
+.mail-card:nth-child(even) { --accent: var(--cyan); }
+.mail-card h3 { margin-block-start: 10px; font-size: clamp(20px, 3vw, 27px); }
+.mail-card p { color: var(--muted); font-size: 14px; }
+.mail-card fieldset { min-width: 0; display: grid; gap: 12px; border: 0; margin: 16px 0 0; padding: 0; }
+.mail-card label { display: grid; gap: 4px; color: var(--text); font-weight: 650; font-size: 14px; }
+.field-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.mail-card input:not([type='checkbox']), .mail-card textarea { min-width: 0; width: 100%; min-height: 42px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 7px 12px; color: var(--text); background: var(--base); font: inherit; }
+.mail-card textarea { resize: vertical; }
+.mail-card .consent { display: flex; align-items: baseline; gap: 7px; }
+.mail-card .consent input { accent-color: var(--lime); }
+.mail-card button { justify-self: start; }
+.mail-card fieldset:disabled button { opacity: .48; cursor: not-allowed; }
+.mail-card .form-status { margin-block-start: 10px; color: var(--lime); }
+.mail-card :disabled label, .mail-card .form-status[data-error='true'] { color: #ffd0b3; }
+.token-page { display: grid; justify-items: start; gap: 16px; }
+@media (max-width: 760px) { .mail-grid { grid-template-columns: 1fr; } }

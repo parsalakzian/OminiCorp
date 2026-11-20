@@ -1,13 +1,20 @@
-# nginx:1.30.7-alpine-slim, pinned to the multi-platform manifest.
-FROM nginx:1.30.7-alpine-slim@sha256:8c950211a641ec5b23f265450517001f6bcca533666120ebe36cb4cff3d00a55
+# Pinned multi-platform Node 24 Alpine image. Nodemailer is pure JavaScript.
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS dependencies
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && mkdir -m 700 data && touch data/.keep
 
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5
 LABEL org.opencontainers.image.source="https://github.com/parsalakzian/OminiCorp"
-COPY deploy/nginx.conf /etc/nginx/nginx.conf
-COPY index.html en.html /srv/ominicorp/
-COPY assets/ /srv/ominicorp/assets/
-
-USER nginx
+ENV NODE_ENV=production PORT=8080 SUBSCRIBER_DB=/app/data/subscribers.sqlite
+WORKDIR /app
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=dependencies --chown=node:node /app/data ./data
+COPY index.html en.html ./
+COPY assets/ ./assets/
+COPY server/ ./server/
+USER node
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
-ENTRYPOINT ["nginx", "-g", "daemon off;"]
+CMD ["node", "server/start.mjs"]

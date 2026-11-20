@@ -4,6 +4,10 @@ exclude:
   - docs/
   - node_modules/
   - site/
+  - server/
+  - data/
+  - smtp.env
+  - smtp.env.example
   - tests/
   - compose.yaml
   - Dockerfile

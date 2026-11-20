@@ -42,7 +42,7 @@ for (const [lang, copy] of Object.entries(locales)) {
       await access(new URL(`../${url}`, import.meta.url));
     }
     for (const contact of contacts) assert.ok(html.includes(`href="${contact.href}"`));
-    assert.doesNotMatch(html, /<script(?![^>]+src=)|<form(?! method="dialog")|\bonclick\s*=/i);
+    assert.doesNotMatch(html, /<script(?![^>]+src=)|<form(?! method="dialog"| method="post" action="\/api\/(?:request|subscribe)")|\bonclick\s*=/i);
   });
 }
 

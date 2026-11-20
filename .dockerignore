@@ -1,8 +1,10 @@
 **
 !Dockerfile
+!package.json
+!package-lock.json
 !index.html
 !en.html
 !assets/
 !assets/**
-!deploy/
-!deploy/nginx.conf
+!server/
+!server/**

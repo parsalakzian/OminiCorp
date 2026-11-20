@@ -2,12 +2,24 @@ services:
   website:
     image: ${OMINICORP_IMAGE:-ghcr.io/parsalakzian/ominicorp:latest}
     restart: unless-stopped
+    env_file:
+      - path: smtp.env
+        required: false
+        format: raw
+    environment:
+      PORT: '8080'
+      SUBSCRIBER_DB: /app/data/subscribers.sqlite
     ports:
       - "${OMINICORP_BIND:-127.0.0.1}:${OMINICORP_PORT:-8080}:8080"
     read_only: true
+    volumes:
+      - subscribers:/app/data
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
+
+volumes:
+  subscribers:

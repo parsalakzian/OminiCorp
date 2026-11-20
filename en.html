@@ -10,7 +10,10 @@
   <link rel="alternate" hreflang="fa" href="index.html">
   <link rel="icon" type="image/webp" href="assets/media/logo.webp">
   <link rel="stylesheet" href="assets/site.css">
+  <link rel="stylesheet" href="assets/forms.css">
+  <link rel="stylesheet" href="assets/tv.css">
   <script type="module" src="assets/site.mjs"></script>
+  <script type="module" src="assets/forms.mjs"></script>
 </head>
 <body id="top">
 <a class="skip-link" href="#main">Skip to content</a>
@@ -122,6 +125,30 @@
     <span class="tile"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5h.01"/></svg></span><span><strong>Instagram</strong><bdi>@OminiCorp</bdi></span><svg class="contact-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M8 6h10v10"/></svg>
   </a></div>
   <a class="secondary-contact" href="tel:+989108681553">Second number: <bdi>+98 910 868 1553</bdi></a>
+  <div class="mail-grid">
+  <section class="mail-card" aria-labelledby="request-title">
+  <span class="tile"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-8-4 18-6-5-3 2v-5zM8 13l8-5m-5 8 5-8"/></svg></span><h3 id="request-title">Project request</h3><p>Tell us what you’re working on and the OminiCorp team can follow up by email.</p>
+  <form method="post" action="/api/request" data-mail="request" data-sending="Sending…" data-disabled="This form is not active here. You can still contact us using the links above." data-invalid="Check the form and try again." data-rate="Too many attempts. Please try again in a few minutes." data-unavailable="Could not send. Please try again later or contact us directly." data-sent="Your request was accepted by our mail server. Check your email for a reply.">
+    <fieldset disabled>
+      <div class="field-row"><label>Name<input name="name" maxlength="100" autocomplete="name" required></label><label>Email<input type="email" name="email" autocomplete="email" dir="ltr" maxlength="254" required></label></div><label>Project brief<textarea name="message" rows="4" minlength="10" maxlength="3000" required></textarea></label>
+      <input name="website" type="text" autocomplete="off" tabindex="-1" hidden>
+      <button class="button button-primary" type="submit">Send request<svg class="directional" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></button>
+    </fieldset>
+    <p class="form-status" role="status" data-loading hidden>Checking form availability…</p><noscript><p>Enable JavaScript to use the form, or use the direct contact links above.</p></noscript>
+  </form>
+</section>
+  <section class="mail-card" aria-labelledby="subscribe-title">
+  <span class="tile"><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2c.7 6.2 3.8 9.3 10 10-6.2.7-9.3 3.8-10 10-.7-6.2-3.8-9.3-10-10 6.2-.7 9.3-3.8 10-10Z"/></svg></span><h3 id="subscribe-title">OminiCorp newsletter</h3><p>Sign up for OminiCorp updates. Your subscription starts once you confirm your email.</p>
+  <form method="post" action="/api/subscribe" data-mail="subscribe" data-sending="Sending…" data-disabled="This form is not active here. You can still contact us using the links above." data-invalid="Check the form and try again." data-rate="Too many attempts. Please try again in a few minutes." data-unavailable="Could not send. Please try again later or contact us directly." data-sent="If this address can be registered, we’ll send a confirmation link. Check your spam folder too.">
+    <fieldset disabled>
+      <label>Email<input type="email" name="email" autocomplete="email" dir="ltr" maxlength="254" required></label><label class="consent"><input type="checkbox" name="consent" required><span>I agree to receive email updates and understand that I can unsubscribe.</span></label>
+      <input name="website" type="text" autocomplete="off" tabindex="-1" hidden>
+      <button class="button button-primary" type="submit">Subscribe<svg class="directional" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></button>
+    </fieldset>
+    <p class="form-status" role="status" data-loading hidden>Checking form availability…</p><noscript><p>Enable JavaScript to use the form, or use the direct contact links above.</p></noscript>
+  </form>
+</section>
+</div>
 </section>
 </main>
 <footer class="site-footer"><div class="shell footer-inner">
@@ -140,11 +167,15 @@
   <div class="choices"><button type="button" aria-pressed="false" data-goal="0">I want to launch online<svg class="directional" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></button><button type="button" aria-pressed="false" data-goal="1">I need security and infrastructure<svg class="directional" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></button><button type="button" aria-pressed="false" data-goal="2">I want my brand to stand out<svg class="directional" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></button><button type="button" aria-pressed="false" data-goal="3">I’m designing or renovating a space<svg class="directional" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></button></div>
   <div class="guide-result" hidden><h3>Where we suggest starting</h3><ul></ul></div><p class="sr-only" role="status" data-guide-status></p>
 </dialog>
-<dialog id="display" aria-labelledby="display-title" class="display">
-  <div class="dialog-head"><span class="dialog-id" dir="ltr">OC // DISPLAY</span><form method="dialog"><button type="submit" class="icon-button" aria-label="Close" autofocus><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></form></div>
-  <h2 id="display-title">Display mode</h2>
-  <div class="slide" aria-live="polite"></div>
-  <div class="display-controls"><button class="button button-muted" type="button" data-slide="-1">Previous</button><button class="button button-muted" type="button" data-play="Autoplay" data-pause="Pause autoplay">Autoplay</button><button class="button button-primary" type="button" data-slide="1">Next</button></div>
+<dialog id="display" class="display" aria-labelledby="display-title">
+  <div class="tv-sky" aria-hidden="true"></div>
+  <header class="tv-header"><span class="wordmark"><img src="assets/media/logo.webp" width="41" height="30" alt=""><span><strong dir="ltr">OMINI<span>CORP</span></strong><small>OminiCorp</small></span></span><h2 id="display-title">The OminiCorp service collection</h2><form method="dialog"><button type="submit" class="icon-button" aria-label="Close" autofocus><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></form></header>
+  <div class="tv-stage">
+    <div class="slide" aria-live="polite"></div>
+    <div class="tv-art" aria-hidden="true"><div class="tv-halo"></div><div class="tv-orbit"></div><div class="tv-orbit tv-orbit-offset"></div><img src="assets/media/hero.webp" width="1150" height="859" alt="" loading="lazy"><span class="tv-icon"></span></div>
+  </div>
+  <div class="tv-progress" aria-hidden="true"><span></span></div>
+  <div class="display-controls"><button class="button button-muted" type="button" data-slide="-1"><svg class="directional" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg>Previous</button><button class="button button-outline" type="button" data-play="Autoplay" data-pause="Pause autoplay">Autoplay</button><button class="button button-muted" type="button" data-slide="1">Next<svg class="directional" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></button><button class="button button-muted tv-full" type="button" data-fullscreen="Full screen" data-exit="Exit full screen" data-error="Full screen is unavailable in this browser or preview."><svg class="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>Full screen</button><p class="sr-only" role="status" data-full-status></p></div>
 </dialog>
 </body>
 </html>

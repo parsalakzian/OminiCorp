@@ -38,7 +38,7 @@ export const locales = {
     aboutLabel: 'روش همکاری', aboutHeading: 'از گفت‌وگوی اول تا اجرا', aboutBody: 'وقتی یک پروژه به چند تخصص نیاز دارد، لازم نیست برای هر بخش از صفر شروع کنید. از یک گفت‌وگو شروع می‌کنیم و با هم مشخص می‌کنیم چه خدماتی به کارتان می‌آید.',
     steps: [['شناخت نیاز', 'درباره پروژه، هدف و محدودیت‌ها صحبت می‌کنیم.'], ['تعیین مسیر', 'خدمات مورد نیاز و محدوده کار را مشخص می‌کنیم.'], ['اجرا و هماهنگی', 'تخصص‌های مرتبط را برای اجرای پروژه کنار هم می‌آوریم.']],
     contactLabel: 'در ارتباط باشیم', contactHeading: 'درباره پروژه‌تان حرف بزنیم.', contactBody: 'از راهی که برایتان راحت‌تر است با ما در ارتباط باشید.', contactNames: ['تلفن', 'تلگرام', 'واتساپ', 'اینستاگرام'],
-    secondary: 'شماره دوم', copyright: 'تمامی حقوق محفوظ است.', tv: 'حالت نمایشگر', previous: 'قبلی', next: 'بعدی', play: 'پخش خودکار', pause: 'توقف پخش', close: 'بستن', discuss: 'تماس درباره پروژه',
+    secondary: 'شماره دوم', copyright: 'تمامی حقوق محفوظ است.', tv: 'حالت نمایشگر', fullscreen: 'تمام‌صفحه', exitFullscreen: 'خروج از تمام‌صفحه', fullscreenUnavailable: 'تمام‌صفحه در این مرورگر یا پیش‌نمایش در دسترس نیست.', tvLabel: 'معرفی خدمات اومینی‌کورپ', previous: 'قبلی', next: 'بعدی', play: 'پخش خودکار', pause: 'توقف پخش', close: 'بستن', discuss: 'تماس درباره پروژه',
   },
   en: {
     direction: 'ltr', name: 'OminiCorp', title: 'OminiCorp | Everything Together',
@@ -55,7 +55,7 @@ export const locales = {
     aboutLabel: 'How we work', aboutHeading: 'From first conversation to delivery', aboutBody: 'If your project calls for more than one specialty, you don’t have to start over with each team. We start with one conversation to find out what will help.',
     steps: [['Understand the goal', 'We talk about your project, goals, and constraints.'], ['Define the scope', 'We identify the services and agree what the work will cover.'], ['Build together', 'We bring the right specialties together to do the work.']],
     contactLabel: 'Get in touch', contactHeading: 'Let’s talk about your project.', contactBody: 'Choose the channel that’s most convenient for you.', contactNames: ['Phone', 'Telegram', 'WhatsApp', 'Instagram'],
-    secondary: 'Second number', copyright: 'All rights reserved.', tv: 'Display mode', previous: 'Previous', next: 'Next', play: 'Autoplay', pause: 'Pause autoplay', close: 'Close', discuss: 'Discuss your project',
+    secondary: 'Second number', copyright: 'All rights reserved.', tv: 'Display mode', fullscreen: 'Full screen', exitFullscreen: 'Exit full screen', fullscreenUnavailable: 'Full screen is unavailable in this browser or preview.', tvLabel: 'The OminiCorp service collection', previous: 'Previous', next: 'Next', play: 'Autoplay', pause: 'Pause autoplay', close: 'Close', discuss: 'Discuss your project',
   },
 };
 
