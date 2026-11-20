@@ -1,0 +1,22 @@
+{
+  "name": "ominicorp-site",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "node site/build.mjs",
+    "check": "node site/build.mjs --check",
+    "test": "npm run check && node --test tests/*.test.mjs",
+    "dev": "node server/start.mjs",
+    "test:browser": "playwright test",
+    "start": "node server/start.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "smtp-server": "3.21.6"
+  },
+  "dependencies": {
+    "nodemailer": "10.6.0"
+  }
+}

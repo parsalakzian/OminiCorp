@@ -1,0 +1,10 @@
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!index.html
+!en.html
+!assets/
+!assets/**
+!server/
+!server/**

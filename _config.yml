@@ -1,0 +1,17 @@
+# Keep the existing GitHub Pages deployment and legacy URLs; omit dev-only files.
+exclude:
+  - deploy/
+  - docs/
+  - node_modules/
+  - site/
+  - server/
+  - data/
+  - smtp.env
+  - smtp.env.example
+  - tests/
+  - compose.yaml
+  - Dockerfile
+  - package.json
+  - package-lock.json
+  - playwright.config.mjs
+  - README.md
