@@ -27,3 +27,18 @@ for (const form of document.querySelectorAll('[data-generate]')) {
     finally { button.disabled = false; }
   });
 }
+
+const revealedToken = document.querySelector('[data-mcp-reveal]');
+if (revealedToken) {
+  const input = revealedToken.querySelector('[data-mcp-token]');
+  const button = revealedToken.querySelector('[data-copy-mcp]');
+  const status = revealedToken.querySelector('[data-mcp-copy-status]');
+  if (navigator.clipboard) {
+    button.hidden = false;
+    button.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(input.value); status.textContent = 'توکن کپی شد.'; }
+      catch { input.focus(); input.select(); status.textContent = 'توکن انتخاب شد؛ آن را دستی کپی کنید.'; }
+    });
+  }
+  window.addEventListener('pagehide', () => { input.value = ''; input.defaultValue = ''; revealedToken.hidden = true; });
+}

@@ -37,35 +37,39 @@ export function smtpConfig(system) {
     SMTP_USER: system.smtpUser, SMTP_PASS: system.smtpPassword, SMTP_FROM: system.smtpFrom, SMTP_TO: system.smtpTo });
 }
 
-export function updateSystem(params, previous) {
-  const read = (key, size = 255) => {
-    const value = (params.get(key) || '').trim();
-    if (value.length > size || /[\r\n\0]/.test(value)) throw new Error('طول یا قالب یکی از تنظیمات معتبر نیست.');
-    return value;
-  };
-  const secret = (key, size) => {
-    if (params.has(`clear.${key}`)) return '';
-    const value = key === 'smtpPassword' ? params.get(key) || '' : read(key, size);
-    if (value.length > size || /[\r\n\0]/.test(value)) throw new Error('Invalid secret value');
-    return value || previous[key] || '';
-  };
-  const mcpToken = read('mcpToken', 256);
-  if (mcpToken && !/^[A-Za-z\d._~-]{32,256}$/.test(mcpToken)) throw new Error('توکن MCP باید دست‌کم ۳۲ کاراکتر و بدون فاصله باشد.');
-  const proxy = secret('proxySecret', 600);
-  if (proxy) {
-    const url = new URL(proxy);
-    if (!['http:', 'https:'].includes(url.protocol) || url.pathname !== '/' || url.search || url.hash) throw new Error('آدرس پراکسی باید HTTP یا HTTPS باشد و مسیر یا query نداشته باشد.');
+function readField(params, key, size = 255, trim = true) {
+  const raw = params.get(key) || '';
+  const value = trim ? raw.trim() : raw;
+  if (value.length > size || /[\r\n\0]/.test(value)) throw new Error('Invalid settings field');
+  return value;
+}
+
+function secretField(params, previous, key, size) {
+  if (params.has(`clear.${key}`)) return '';
+  return readField(params, key, size, key !== 'smtpPassword') || previous[key] || '';
+}
+
+export function updateAiSecrets(params, previous) {
+  const proxySecret = secretField(params, previous, 'proxySecret', 600);
+  if (proxySecret) {
+    const url = new URL(proxySecret);
+    if (!['http:', 'https:'].includes(url.protocol) || url.pathname !== '/' || url.search || url.hash) throw new Error('Invalid proxy URL');
   }
+  return { ...previous, aiKey: secretField(params, previous, 'aiKey', 512), proxySecret };
+}
+
+export function updateSystem(params, previous) {
+  const read = (key, size) => readField(params, key, size);
   const value = {
+    ...previous,
     siteUrl: parseOrigin(read('siteUrl', 500)), mailEnabled: params.has('mailEnabled'), smtpHost: read('smtpHost'), smtpPort: read('smtpPort', 5),
     smtpMode: read('smtpMode', 10), smtpFrom: read('smtpFrom'), smtpTo: read('smtpTo'), smtpUser: read('smtpUser'),
-    smtpPassword: secret('smtpPassword', 512), aiKey: secret('aiKey', 512), proxySecret: proxy,
-    mcpHash: params.has('clear.mcpToken') ? '' : mcpToken ? tokenHash(mcpToken) : previous.mcpHash || '',
+    smtpPassword: secretField(params, previous, 'smtpPassword', 512),
   };
   if (!['starttls', 'tls', 'none'].includes(value.smtpMode) || (value.smtpPort && (!/^\d+$/.test(value.smtpPort) || +value.smtpPort < 1 || +value.smtpPort > 65535))) {
-    throw new Error('پورت یا نوع امنیت SMTP معتبر نیست.');
+    throw new Error('Invalid SMTP port or security');
   }
-  if (value.mailEnabled && !value.smtpHost) throw new Error('برای فعال‌کردن فرم‌ها نشانی سرور SMTP لازم است.');
-  try { smtpConfig(value); } catch { throw new Error('تنظیمات SMTP (ایمیل‌ها، احراز هویت، پورت و TLS) را بررسی کنید.'); }
+  if (value.mailEnabled && !value.smtpHost) throw new Error('Missing SMTP host');
+  smtpConfig(value);
   return value;
 }
