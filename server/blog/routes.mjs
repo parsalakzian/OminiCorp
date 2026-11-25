@@ -1,8 +1,9 @@
 import { checkPassword, constantEqual as equal, digest, makeKey as random, parseOrigin, passwordRecord, tokenHash, updateAiSecrets, updateSystem, validPassword } from '../installation.mjs';
 import { ZodError } from 'zod';
-import { aiSettingsPage, dashboard, editor, login, mcpSettingsPage, setupPage, systemPage } from './admin.mjs';
+import { aiSettingsPage, confirmDelete, dashboard, editor, login, mediaLibrary, mcpSettingsPage, setupPage, systemPage } from './admin.mjs';
 import { createAutomation } from './automation.mjs';
 import { createMcpHttp } from './mcp-http.mjs';
+import { maxImageBytes, MediaError, mediaFromPath, sendImage } from './media.mjs';
 import { renderArticle, renderList, renderMissing, sitemap } from './render.mjs';
 import { sections, slug } from './schema.mjs';
 import { BlogConflict, openBlog } from './store.mjs';
@@ -17,7 +18,7 @@ const redirect = (res, location, status = 303) => res.writeHead(status, { Locati
 const cookieName = 'omini_desk';
 const sessionAge = 12 * 60 * 60;
 
-async function read(req, limit) {
+async function readBytes(req, limit) {
   if (Number(req.headers['content-length']) > limit) { req.resume(); return null; }
   let size = 0;
   const chunks = [];
@@ -26,14 +27,18 @@ async function read(req, limit) {
     if (size > limit) { req.resume(); return null; }
     chunks.push(chunk);
   }
-  return Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks);
 }
+
+const read = async (req, limit) => (await readBytes(req, limit))?.toString('utf8') ?? null;
+const allowExternalCovers = (res) => res.setHeader('Content-Security-Policy', `${res.getHeader('Content-Security-Policy')}; img-src 'self' https:`);
 
 function postData(params) {
   const get = (key) => params.get(key) || '';
   const translations = Object.fromEntries(['fa', 'en'].map((lang) => [lang, { ...Object.fromEntries(['title', 'slug', 'excerpt', 'seoTitle', 'description', 'body'].map((key) => [key, get(`${lang}.${key}`)])), tags: get(`${lang}.tags`).split(/[,،]/).map((tag) => tag.trim()).filter(Boolean) }]));
   const sources = get('sources').split(/\r?\n/).filter((line) => line.trim()).map((line) => { const i = line.lastIndexOf('|'); return { title: i < 0 ? '' : line.slice(0, i).trim(), url: i < 0 ? '' : line.slice(i + 1).trim() }; });
-  return { author: get('author'), section: get('section'), state: get('state'), sources, ...translations };
+  const cover = params.has('cover.src') ? (get('cover.src').trim() ? { src: get('cover.src'), altFa: get('cover.altFa'), altEn: get('cover.altEn') } : null) : undefined;
+  return { cover, author: get('author'), section: get('section'), state: get('state'), sources, ...translations };
 }
 
 function aiSettingsData(params, stored) {
@@ -42,8 +47,8 @@ function aiSettingsData(params, stored) {
     proxyUrl: (params.get('proxyUrl') || '').trim(), interval: Number(params.get('interval')), batch: Number(params.get('batch')) };
 }
 
-const notices = { saved: 'مقاله ذخیره شد.', removed: 'مقاله حذف شد.', waiting: 'تولید در حال انجام است؛ چند دقیقه بعد وضعیت را بررسی کنید.', disabled: 'تولید در تنظیمات خاموش است.', settings: 'تنظیمات ذخیره شد.', password: 'رمز تغییر کرد. دوباره وارد شوید.', revoked: 'توکن لغو شد؛ اتصال با آن دیگر ممکن نیست.' };
-const errorText = (error) => error.kind === 'slug-locked' ? 'نامک هر دو زبان پس از اولین انتشار ثابت است.' : error instanceof BlogConflict ? 'این نامک یا منبع قبلاً در مقالهٔ دیگری ثبت شده است.' : error instanceof ZodError ? `این ورودی‌ها را بررسی کنید: ${[...new Set(error.issues.map((entry) => entry.path.join('.')))].slice(0,12).join('، ')}` : 'ذخیره‌سازی انجام نشد.';
+const notices = { imageUploaded: 'تصویر بارگذاری شد.', imageRemoved: 'تصویر حذف شد.', saved: 'مقاله ذخیره شد.', removed: 'مقاله حذف شد.', waiting: 'تولید در حال انجام است؛ چند دقیقه بعد وضعیت را بررسی کنید.', disabled: 'تولید در تنظیمات خاموش است.', settings: 'تنظیمات ذخیره شد.', password: 'رمز تغییر کرد. دوباره وارد شوید.', revoked: 'توکن لغو شد؛ اتصال با آن دیگر ممکن نیست.' };
+const errorText = (error) => error instanceof MediaError ? 'مسیر تصاویر را بررسی کنید. فقط تصویرهای موجود در کتابخانه و حداکثر ۴۰ تصویر در هر مقاله مجازند.' : error.kind === 'slug-locked' ? 'نامک هر دو زبان پس از اولین انتشار ثابت است.' : error instanceof BlogConflict ? 'این نامک یا منبع قبلاً در مقالهٔ دیگری ثبت شده است.' : error instanceof ZodError ? `این ورودی‌ها را بررسی کنید: ${[...new Set(error.issues.map((entry) => entry.path.join('.')))].slice(0,12).join('، ')}` : 'ذخیره‌سازی انجام نشد.';
 
 export function createBlog(options = {}) {
   const store = options.store || openBlog('data/blog.sqlite');
@@ -139,19 +144,42 @@ export function createBlog(options = {}) {
     const note = url.searchParams.get('notice');
     const issue = Object.hasOwn(notices, note) ? notices[note] : undefined;
     const status = store.getSettings();
+    const mediaMatch = path.match(/^\/admin\/media\/([a-f0-9]{64})(\/delete)?$/);
+    const library = (page, code = 200, error) => html(req, res, code, mediaLibrary({ origin, csrf, ...store.listImages(page), page, notice: issue, error }));
+    if (path === '/admin/media' && method === 'POST') {
+      if (!equal(req.headers['x-csrf-token'], csrf)) return res.writeHead(403).end();
+      const type = req.headers['content-type'];
+      if (!['image/png', 'image/jpeg', 'image/webp', 'application/octet-stream'].includes(type)) return res.writeHead(415).end();
+      const data = await readBytes(req, maxImageBytes);
+      if (data === null) return res.writeHead(413).end();
+      if (sessions.get(token) !== session || session.expires <= Date.now()) return res.writeHead(403).end();
+      try {
+        const uploaded = store.uploadImage(data, type === 'application/octet-stream' ? undefined : type);
+        return res.writeHead(201, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(uploaded));
+      } catch (error) {
+        if (!(error instanceof MediaError)) throw error;
+        return res.writeHead(error.kind === 'quota' ? 507 : 422).end();
+      }
+    }
+    if (mediaMatch && !mediaMatch[2]) return sendImage(req, res, readOnly ? store.getImage(mediaMatch[1]) : undefined);
     const match = path.match(/^\/admin\/articles\/(new|[1-9]\d{0,8})(\/delete)?$/);
     const id = match && match[1] !== 'new' ? Number(match[1]) : undefined;
     const item = id && store.find(id);
     if (id && !item) return res.writeHead(404).end();
     if (method === 'GET' || method === 'HEAD') {
+      if (path === '/admin/media') return library(pageNumber(url.searchParams.get('page')));
       if (path === '/admin') {
         const page = pageNumber(url.searchParams.get('page'));
-        return html(req, res, 200, dashboard({ origin, csrf, ...store.list({ admin: true, page, size: 20 }), published: store.list({ size: 1 }).total, run: store.getRun(), settings: status, notice: issue, page }));
+        const query = (url.searchParams.get('q') || '').trim().slice(0, 100);
+        const state = ['draft', 'published'].includes(url.searchParams.get('state')) ? url.searchParams.get('state') : '';
+        const section = sections.includes(url.searchParams.get('section')) ? url.searchParams.get('section') : '';
+        return html(req, res, 200, dashboard({ origin, csrf, ...store.list({ admin: true, page, size: 20, query, state, section, bilingual: true }), query, state, section, articleCount: store.list({ admin: true, size: 1 }).total, published: store.list({ size: 1 }).total, run: store.getRun(), settings: status, notice: issue, page }));
       }
       const preview = path.match(/^\/admin\/articles\/([1-9]\d{0,8})\/preview\/(fa|en)$/);
       if (preview) {
         const draft = store.find(Number(preview[1]));
         if (!draft) return res.writeHead(404).end();
+        if (draft.cover?.src.startsWith('https://')) allowExternalCovers(res);
         return html(req, res, 200, renderArticle(preview[2], origin, { ...draft, published: draft.published || draft.modified }, [], true));
       }
       if (path === '/admin/run') return res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(method === 'HEAD' ? undefined : JSON.stringify({ ...store.getRun(), pending: Boolean(pending) }));
@@ -164,7 +192,8 @@ export function createBlog(options = {}) {
         const token = reveal && reveal.expires > Date.now() && equal(tokenHash(reveal.token), system.mcpHash) ? reveal.token : undefined;
         return html(req, res, 200, mcpSettingsPage({ origin, csrf, system, settings: status, notice: issue, token }));
       }
-      if (match && !match[2]) return html(req, res, 200, editor({ origin, csrf, item: item || undefined, id }));
+      if (match?.[2] && item) return html(req, res, 200, confirmDelete({ origin, csrf, item }));
+      if (match && !match[2]) { allowExternalCovers(res); return html(req, res, 200, editor({ origin, csrf, item: item || undefined, id })); }
       return res.writeHead(404).end();
     }
     if (method !== 'POST') return res.writeHead(405).end();
@@ -225,17 +254,24 @@ export function createBlog(options = {}) {
       run(false);
       return redirect(res, `${home}?notice=waiting`);
     }
+    if (mediaMatch?.[2]) {
+      try { if (!store.removeImage(mediaMatch[1])) return res.writeHead(404).end(); }
+      catch (error) { if (error instanceof MediaError) return library(1, 409, 'این تصویر در مقاله‌ای استفاده شده و قابل حذف نیست.'); throw error; }
+      return redirect(res, '/admin/media?notice=imageRemoved');
+    }
     if (!match) return res.writeHead(404).end();
     if (match[2]) { if (!id) return res.writeHead(404).end(); store.remove(id); return redirect(res, `${home}?notice=removed`); }
     const value = postData(params);
     try { store.save(value, id); return redirect(res, `${home}?notice=saved`); }
-    catch (error) { return html(req, res, error instanceof BlogConflict ? 409 : 422, editor({ origin, csrf, item: value, id, error: errorText(error) })); }
+    catch (error) { allowExternalCovers(res); return html(req, res, error instanceof BlogConflict ? 409 : 422, editor({ origin, csrf, item: { ...value, published: item?.published, cover: value.cover === undefined ? item?.cover : value.cover }, id, error: errorText(error) })); }
   }
 
   async function route(req, res, url) {
     const path = url.pathname;
     if (path === '/admin/' || path === '/blog/' || path === '/en/blog/') return redirect(res, path.slice(0, -1), 308);
     if (path === '/mcp' || path === '/mcp/') return mcp(req, res);
+    const media = mediaFromPath(path);
+    if (media) return sendImage(req, res, ['GET', 'HEAD'].includes(req.method) && store.getSettings().enabled ? store.getImage(media, true) : undefined);
     if (path === '/admin' || path.startsWith('/admin/')) return admin(req, res, url);
     const blog = path.match(/^\/(en\/)?blog(?:\/([^/]+))?$/);
     if (!blog && !['/robots.txt', '/sitemap.xml'].includes(path)) return false;
@@ -254,6 +290,7 @@ export function createBlog(options = {}) {
       if (!item) return html(req, res, 404, renderMissing(lang, origin));
       const same = store.list({ lang, section: item.section, size: 4 }).items.filter((other) => other.id !== item.id);
       const more = store.list({ lang, size: 4 }).items.filter((other) => other.id !== item.id && !same.some((entry) => entry.id === other.id));
+      if (item.cover?.src.startsWith('https://')) allowExternalCovers(res);
       return html(req, res, 200, renderArticle(lang, origin, item, [...same, ...more].slice(0, 3)));
     }
     const page = pageNumber(url.searchParams.get('page'));
@@ -263,6 +300,7 @@ export function createBlog(options = {}) {
     const size = 9;
     const result = store.list({ lang, page, query, section, size });
     if (page > 1 && !result.items.length) return html(req, res, 404, renderMissing(lang, origin));
+    if (result.items.some((item) => item.cover?.src.startsWith('https://'))) allowExternalCovers(res);
     return html(req, res, 200, renderList(lang, origin, { ...result, page, section, query, size }));
   }
   return { route, store, async close() { clearInterval(clock); await automation.close?.(); await pending; store.close(); } };

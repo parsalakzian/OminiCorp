@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { once } from 'node:events';
 import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -6,6 +10,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { passwordRecord, tokenHash } from '../server/installation.mjs';
 import { createApp } from '../server/app.mjs';
 import { createAutomation, parseFeed } from '../server/blog/automation.mjs';
+import { maxImageBytes, MediaError } from '../server/blog/media.mjs';
 import { renderArticle } from '../server/blog/render.mjs';
 import { createBlog } from '../server/blog/routes.mjs';
 import { seed } from '../server/blog/seed.mjs';
@@ -267,4 +272,113 @@ test('MCP browser guide is public while CORS, proxy-friendly alias and the proto
   store.setSettings({ ...store.getSettings(), mcp: false });
   assert.equal((await fetch(endpoint, { headers: { Accept: 'text/html' } })).status, 200);
   assert.equal((await fetch(endpoint, { method: 'POST', headers: auth })).status, 404);
+});
+
+
+const sampleImage = () => readFileSync(new URL('../assets/media/blog.webp', import.meta.url));
+
+test('existing SQLite journals migrate without replacing articles or settings; media and relationships persist', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'omini-media-'));
+  const path = join(directory, 'journal.sqlite');
+  try {
+    let store = openBlog(path);
+    const old = store.list().items[0];
+    store.setSettings({ ...defaults, mcp: true });
+    store.close();
+    const legacy = new DatabaseSync(path);
+    legacy.exec("DROP TABLE article_media; DROP TABLE media; UPDATE articles SET payload=json_remove(payload,'$.cover'); PRAGMA user_version=1;");
+    legacy.close();
+    store = openBlog(path);
+    assert.equal(store.getSettings().mcp, true);
+    assert.deepEqual(store.find(old.id), old);
+    const sample = sampleImage();
+    assert.throws(() => store.uploadImage(sample.subarray(0, 32)), MediaError);
+    assert.throws(() => store.uploadImage(sample, 'image/jpeg'), MediaError);
+    const photo = store.uploadImage(sample);
+    assert.deepEqual(store.uploadImage(sample), photo);
+    store.save({ ...old, cover: { src: photo.url, altEn: 'Custom cover' } }, old.id);
+    assert.throws(() => store.save({ ...old, cover: { src: '/journal-media/' + '0'.repeat(64) } }, old.id), MediaError);
+    store.close();
+    store = openBlog(path);
+    try {
+      assert.equal(store.find(old.id).cover.altEn, 'Custom cover');
+      assert.equal(store.listImages().items[0].used, 1);
+      assert.deepEqual(Buffer.from(store.getImage(photo.id, true).data), sample);
+      assert.throws(() => store.removeImage(photo.id), /in use/);
+      assert.equal(store.remove(old.id), true);
+      assert.equal(store.getImage(photo.id, true), undefined);
+      assert.equal(store.removeImage(photo.id), true);
+    } finally { store.close(); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('image upload HTTP requires session and CSRF, validates bytes and caps request size', async (t) => {
+  const { url } = await fixture(t);
+  const loginResponse = await submit(url, '/admin/login', { password: adminPassword });
+  const cookie = loginResponse.headers.get('set-cookie').split(';')[0];
+  const csrf = (await (await fetch(`${url}/admin/media`, { headers: { Cookie: cookie } })).text()).match(/name="csrf" value="([A-Za-z\d_-]{43})"/)[1];
+  const upload = (body, headers = {}) => fetch(`${url}/admin/media`, { method: 'POST', body, redirect: 'manual', headers: { 'Content-Type': 'image/webp', ...headers } });
+  const session = { Cookie: cookie, 'X-CSRF-Token': csrf };
+  const bytes = sampleImage();
+  assert.equal((await upload(bytes)).status, 303);
+  assert.equal((await upload(bytes, { Cookie: cookie })).status, 403);
+  assert.equal((await upload(bytes, { ...session, Origin: 'https://untrusted.test' })).status, 403);
+  assert.equal((await upload('<svg></svg>', { ...session, 'Content-Type': 'image/svg+xml' })).status, 415);
+  assert.equal((await upload('<svg></svg>', session)).status, 422);
+  assert.equal((await upload(Buffer.alloc(maxImageBytes + 1), session)).status, 413);
+  const accepted = await upload(bytes, session);
+  assert.equal(accepted.status, 201);
+  const { id, url: imageUrl } = await accepted.json();
+  assert.equal((await fetch(url + imageUrl)).status, 404);
+  const preview = await fetch(`${url}/admin/media/${id}`, { headers: { Cookie: cookie }, method: 'HEAD' });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.headers.get('content-type'), 'image/webp');
+  assert.equal(preview.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(preview.headers.get('cache-control'), 'no-store');
+});
+
+test('MCP can upload and reuse media; publication, cover updates and safe deletion share admin rules', async (t) => {
+  const { store, url } = await fixture(t, { mcp: true, mcpWrite: true, mcpPublish: true });
+  const client = new Client({ name: 'media-integration', version: '1.0.0' });
+  await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${mcpKey}` } } }));
+  const call = (name, args) => client.callTool({ name, arguments: args });
+  try {
+    assert.equal((await call('upload_image', { base64: '!!!!' })).isError, true);
+    // A valid extended WebP container large enough to exceed the pre-upload JSON cap.
+    const padding = Buffer.alloc(600008);
+    padding.write('JUNK');
+    padding.writeUInt32LE(padding.length - 8, 4);
+    const bytes = Buffer.concat([sampleImage(), padding]);
+    bytes.writeUInt32LE(bytes.length - 8, 4);
+    const { image } = (await call('upload_image', { base64: bytes.toString('base64') })).structuredContent;
+    assert.equal(image.type, 'image/webp');
+    assert.equal(image.size, bytes.length);
+    const article = clone();
+    article.fa.slug += '-تصویر'; article.en.slug += '-image'; article.sources = [];
+    article.en.body += `\n\n![Body figure][figure]\n\n[figure]: ${image.url}`;
+    article.cover = { src: image.url, altFa: 'تصویر اصلی', altEn: 'Cover figure' };
+    const created = (await call('create_article', { article })).structuredContent.article;
+    const id = created.id;
+    assert.equal(created.cover.altEn, 'Cover figure');
+    assert.equal((await fetch(url + image.url)).status, 404);
+    assert.equal((await call('list_images', {})).structuredContent.items[0].used, 1);
+    assert.equal((await call('delete_image', { id: image.id })).isError, true);
+    const { cover, ...noCover } = article;
+    assert.deepEqual((await call('update_article', { id, article: noCover })).structuredContent.article.cover, created.cover);
+    assert.equal((await call('publish_article', { id, published: true })).structuredContent.article.state, 'published');
+    const publicImage = await fetch(url + image.url);
+    assert.equal(publicImage.status, 200);
+    assert.deepEqual(Buffer.from(await publicImage.arrayBuffer()), bytes);
+    const html = await (await fetch(`${url}/en/blog/${article.en.slug}`)).text();
+    assert.match(html, /alt="Body figure"/);
+    assert.match(html, /alt="Cover figure"/);
+    assert.equal((await call('update_article', { id, article: { ...noCover, cover: null } })).structuredContent.article.cover, null);
+    assert.equal((await fetch(url + image.url)).status, 200, 'still used in Markdown');
+    assert.equal((await call('publish_article', { id, published: false })).structuredContent.article.state, 'draft');
+    assert.equal((await fetch(url + image.url)).status, 404);
+    assert.equal((await call('delete_article', { id })).structuredContent.removed, true);
+    assert.equal((await call('delete_image', { id: image.id })).structuredContent.removed, true);
+    store.setSettings({ ...store.getSettings(), mcpWrite: false });
+    assert.ok(!(await client.listTools()).tools.some(({ name }) => name.endsWith('_image') || name === 'list_images'));
+  } finally { await client.close(); }
 });

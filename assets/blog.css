@@ -135,3 +135,25 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .desk-token { padding: 12px; border: 1px solid #4d6938; border-radius: 8px; background: #aeda5e10; }
 .desk-token > div { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-block: 8px; }
 .desk-token .desk-field { flex: 1 1 175px; min-width: 0; }
+
+.journal-card-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.article-content img { display: block; max-width: 100%; height: auto; border-radius: 12px; margin-block: 14px; }
+.desk-tools, .desk-filter, .desk-upload { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.desk-filter { margin-block: 14px; }
+.desk-filter .desk-field { flex: 1 1 160px; min-width: 0; }
+.desk-action-row { grid-column: 2 / -1; }
+.desk-action-row .button { min-height: 32px; }
+.desk-danger { color: #ffb4a1; }
+.desk-upload { border: 1px dashed var(--line); border-radius: 9px; padding: 12px; margin-block: 9px; }
+.desk-upload .desk-field { flex: 1 1 200px; min-width: 0; overflow: hidden; }
+.desk-upload output { flex: 1 0 100%; font-size: 13px; color: var(--cyan); }
+.desk-upload[hidden], .desk-cover-preview[hidden] { display: none; }
+.desk-cover-preview { display: block; width: min(100%, 320px); max-height: 180px; object-fit: contain; object-position: center; border-radius: 9px; }
+.desk-media-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; margin-top: 16px; }
+.desk-media-item { display: grid; align-content: start; gap: 8px; }
+.desk-media-item img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; }
+.desk-cover-grid { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.35fr); align-items: start; gap: 15px; }
+.desk-cover-grid .desk-cover-preview { width: 100%; max-height: none; aspect-ratio: 16 / 9; object-fit: cover; background: #0a110e; }
+.desk-cover-grid .desk-upload { margin-block: 0; }
+.desk-article-list article small[dir="ltr"] { text-align: right; }
+@media(max-width: 730px) { .desk-cover-grid { grid-template-columns: minmax(0, 1fr); } }

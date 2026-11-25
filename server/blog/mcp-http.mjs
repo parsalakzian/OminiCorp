@@ -1,4 +1,5 @@
 import { constantEqual, tokenHash } from '../installation.mjs';
+import { maxImageBase64 } from './media.mjs';
 import { handleMcp } from './mcp.mjs';
 import { documentPage, escape } from './render.mjs';
 
@@ -55,7 +56,7 @@ export function createMcpHttp({ store, automation, read }) {
     const now = Date.now();
     if (now >= windowEnd) { windowEnd = now + 60000; count = 0; }
     if (++count > 120) { res.setHeader('Retry-After', '60'); return jsonError(res, 429, 'Too many MCP requests.'); }
-    const raw = await read(req, 600000);
+    const raw = await read(req, settings.mcpWrite ? maxImageBase64 + 64 * 1024 : 600000);
     if (raw === null) return jsonError(res, 413, 'MCP request is too large.');
     let body;
     try { body = JSON.parse(raw); } catch { return jsonError(res, 400, 'Invalid JSON request.'); }
