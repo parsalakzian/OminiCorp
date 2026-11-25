@@ -7,9 +7,7 @@ exclude:
   - server/
   - data/
   - smtp.env
-  - smtp.env.example
   - blog.env
-  - blog.env.example
   - tests/
   - compose.yaml
   - Dockerfile

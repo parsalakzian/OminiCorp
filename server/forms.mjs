@@ -75,7 +75,10 @@ export function createForms({ smtp, origin }, store, send) {
     const isToken = ['/opt-in', '/opt-out'].includes(url.pathname);
     if (!isToken && !['/api/request', '/api/subscribe'].includes(url.pathname)) return res.writeHead(404).end();
     if (!smtp) return json(res, 503, 'disabled');
-    if (isToken) return handleToken(req, res, url, store, origin);
+    if (isToken) {
+      res.setHeader('Referrer-Policy', 'strict-origin');
+      return handleToken(req, res, url, store, origin);
+    }
     if (req.method !== 'POST') return res.writeHead(405, { Allow: 'POST' }).end();
     if (!sameOrigin(req, origin)) return json(res, 403, 'invalid');
     if (req.headers['content-type']?.split(';')[0] !== 'application/json') return json(res, 415, 'invalid');

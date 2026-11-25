@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { articleSchema, defaults, normalizeSource, settingsSchema, titleKey } from './schema.mjs';
+import { constantEqual, defaultSystem } from '../installation.mjs';
 import { sampleDate, seed } from './seed.mjs';
 
 export class BlogConflict extends Error {}
@@ -84,6 +85,34 @@ export function openBlog(path, { seedContent = true } = {}) {
     hasSource: (url) => Boolean(sourceUrl.get(normalizeSource(url))),
     sourceTitles: () => titles.all().map((row) => row.title_key),
     articleTitles: () => db.prepare("SELECT json_extract(payload,'$.fa.title') AS fa,json_extract(payload,'$.en.title') AS en FROM articles").all().map((entry) => ({ fa: titleKey(entry.fa), en: titleKey(entry.en) })),
+    getSystem: () => ({ ...defaultSystem, ...meta('system') }),
+    setSystem: (value) => setMeta('system', value),
+    getOwner: () => meta('owner'),
+    setOwner: (value) => setMeta('owner', value),
+    issueSetup(hash, expires) {
+      if (meta('owner')) return false;
+      setMeta('setup', { hash, expires });
+      return true;
+    },
+    verifySetup(hash, now = Date.now()) {
+      const setup = meta('setup');
+      return !meta('owner') && setup?.expires > now && constantEqual(setup.hash, hash);
+    },
+    finishSetup(hash, owner, siteUrl) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const setup = meta('setup');
+        if (meta('owner') || !setup || setup.expires <= Date.now() || !constantEqual(setup.hash, hash)) {
+          db.exec('ROLLBACK');
+          return false;
+        }
+        setMeta('owner', owner);
+        setMeta('system', { ...defaultSystem, ...meta('system'), siteUrl });
+        db.prepare("DELETE FROM metadata WHERE key='setup'").run();
+        db.exec('COMMIT');
+        return true;
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
+    },
     getSettings: () => ({ ...defaults, ...meta('settings') }),
     setSettings(value) { const settings = settingsSchema.parse(value); setMeta('settings', settings); return settings; },
     getRun: () => meta('run'),
