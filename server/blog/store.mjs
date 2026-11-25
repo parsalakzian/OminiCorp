@@ -114,6 +114,15 @@ export function openBlog(path, { seedContent = true } = {}) {
       } catch (error) { db.exec('ROLLBACK'); throw error; }
     },
     getSettings: () => ({ ...defaults, ...meta('settings') }),
+    saveConfiguration(settings, system) {
+      const validated = settingsSchema.parse(settings);
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        setMeta('settings', validated);
+        setMeta('system', system);
+        db.exec('COMMIT');
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
+    },
     setSettings(value) { const settings = settingsSchema.parse(value); setMeta('settings', settings); return settings; },
     getRun: () => meta('run'),
     setRun: (value) => setMeta('run', value),

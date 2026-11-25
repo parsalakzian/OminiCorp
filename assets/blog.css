@@ -126,3 +126,12 @@ button:disabled { opacity: .48; cursor: not-allowed; }
   .desk-article-list time { display: none; }
   .desk-article-list article { grid-template-columns: auto minmax(0,1fr) auto; gap: 7px; }
 }
+
+.desk-settings-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; border-block-end: 1px solid var(--line); }
+.desk-settings-nav a { padding: 9px clamp(9px, 2.1vw, 19px); color: var(--muted); border-block-end: 2px solid transparent; }
+.desk-settings-nav a:hover, .desk-settings-nav a[aria-current] { color: var(--lime); }
+.desk-settings-nav a[aria-current] { border-color: var(--lime); }
+.desk-endpoint { overflow-wrap: anywhere; text-align: start; }
+.desk-token { padding: 12px; border: 1px solid #4d6938; border-radius: 8px; background: #aeda5e10; }
+.desk-token > div { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-block: 8px; }
+.desk-token .desk-field { flex: 1 1 175px; min-width: 0; }

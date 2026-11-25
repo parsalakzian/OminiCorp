@@ -1,6 +1,6 @@
-import { checkPassword, constantEqual as equal, digest, makeKey as random, parseOrigin, passwordRecord, tokenHash, updateSystem, validPassword } from '../installation.mjs';
+import { checkPassword, constantEqual as equal, digest, makeKey as random, parseOrigin, passwordRecord, tokenHash, updateAiSecrets, updateSystem, validPassword } from '../installation.mjs';
 import { ZodError } from 'zod';
-import { dashboard, editor, login, settingsPage, setupPage, systemPage } from './admin.mjs';
+import { aiSettingsPage, dashboard, editor, login, mcpSettingsPage, setupPage, systemPage } from './admin.mjs';
 import { createAutomation } from './automation.mjs';
 import { handleMcp } from './mcp.mjs';
 import { renderArticle, renderList, renderMissing, sitemap } from './render.mjs';
@@ -36,13 +36,13 @@ function postData(params) {
   return { author: get('author'), section: get('section'), state: get('state'), sources, ...translations };
 }
 
-function settingsData(params) {
-  return { ...Object.fromEntries(['enabled','mcp','mcpWrite','mcpPublish','ai','scheduling','autopublish','useProxy'].map((key) => [key, params.get(key) === 'on'])),
+function aiSettingsData(params, stored) {
+  return { ...stored, ...Object.fromEntries(['ai','scheduling','autopublish','useProxy'].map((key) => [key, params.get(key) === 'on'])),
     aiEndpoint: (params.get('aiEndpoint') || '').trim(), aiModel: params.get('aiModel') || '', feeds: [...new Set((params.get('feeds') || '').split(/\r?\n/).map((value) => value.trim()).filter(Boolean))],
     proxyUrl: (params.get('proxyUrl') || '').trim(), interval: Number(params.get('interval')), batch: Number(params.get('batch')) };
 }
 
-const notices = { saved: 'مقاله ذخیره شد.', removed: 'مقاله حذف شد.', waiting: 'تولید در حال انجام است؛ چند دقیقه بعد وضعیت را بررسی کنید.', disabled: 'تولید در تنظیمات خاموش است.', settings: 'تنظیمات ذخیره شد.', password: 'رمز تغییر کرد. دوباره وارد شوید.' };
+const notices = { saved: 'مقاله ذخیره شد.', removed: 'مقاله حذف شد.', waiting: 'تولید در حال انجام است؛ چند دقیقه بعد وضعیت را بررسی کنید.', disabled: 'تولید در تنظیمات خاموش است.', settings: 'تنظیمات ذخیره شد.', password: 'رمز تغییر کرد. دوباره وارد شوید.', revoked: 'توکن لغو شد؛ اتصال با آن دیگر ممکن نیست.' };
 const errorText = (error) => error.kind === 'slug-locked' ? 'نامک هر دو زبان پس از اولین انتشار ثابت است.' : error instanceof BlogConflict ? 'این نامک یا منبع قبلاً در مقالهٔ دیگری ثبت شده است.' : error instanceof ZodError ? `این ورودی‌ها را بررسی کنید: ${[...new Set(error.issues.map((entry) => entry.path.join('.')))].slice(0,12).join('، ')}` : 'ذخیره‌سازی انجام نشد.';
 
 export function createBlog(options = {}) {
@@ -84,7 +84,6 @@ export function createBlog(options = {}) {
     const system = store.getSystem();
     const origin = system.siteUrl;
     const owner = store.getOwner();
-    const ready = { ai: Boolean(system.aiKey), mcp: Boolean(system.mcpHash), proxy: Boolean(system.proxySecret) };
     const path = url.pathname;
     const method = req.method;
     const token = (req.headers.cookie || '').match(/(?:^|;\s*)omini_desk=([A-Za-z\d_-]{43})(?:;|$)/)?.[1];
@@ -155,8 +154,15 @@ export function createBlog(options = {}) {
         return html(req, res, 200, renderArticle(preview[2], origin, { ...draft, published: draft.published || draft.modified }, [], true));
       }
       if (path === '/admin/run') return res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(method === 'HEAD' ? undefined : JSON.stringify({ ...store.getRun(), pending: Boolean(pending) }));
-      if (path === '/admin/system') return html(req, res, 200, systemPage({ origin, csrf, system, notice: issue }));
-      if (path === '/admin/settings') return html(req, res, 200, settingsPage({ origin, csrf, settings: status, ready, notice: issue }));
+      if (path === '/admin/settings') return redirect(res, '/admin/system');
+      if (path === '/admin/system') return html(req, res, 200, systemPage({ origin, csrf, system, settings: status, notice: issue }));
+      if (path === '/admin/system/ai') return html(req, res, 200, aiSettingsPage({ origin, csrf, system, settings: status, notice: issue }));
+      if (path === '/admin/system/mcp') {
+        const reveal = method === 'GET' && session.mcpReveal;
+        if (reveal) delete session.mcpReveal;
+        const token = reveal && reveal.expires > Date.now() && equal(tokenHash(reveal.token), system.mcpHash) ? reveal.token : undefined;
+        return html(req, res, 200, mcpSettingsPage({ origin, csrf, system, settings: status, notice: issue, token }));
+      }
       if (match && !match[2]) return html(req, res, 200, editor({ origin, csrf, item: item || undefined, id }));
       return res.writeHead(404).end();
     }
@@ -168,12 +174,32 @@ export function createBlog(options = {}) {
     if (!equal(params.get('csrf'), csrf)) return res.writeHead(403).end();
     if (path === '/admin/logout') { sessions.delete(token); setCookie(res, '', 0, origin); return redirect(res, '/admin/login'); }
     if (path === '/admin/system') {
-      try { store.setSystem(updateSystem(params, store.getSystem())); }
-      catch { return html(req, res, 422, systemPage({ origin, csrf, system, error: 'دامنه، SMTP، قالب توکن MCP یا آدرس پراکسی را بررسی کنید. مقادیر قبلی حفظ شدند.' })); }
+      const settings = { ...store.getSettings(), enabled: params.get('enabled') === 'on' };
+      try { store.saveConfiguration(settings, updateSystem(params, store.getSystem())); }
+      catch { return html(req, res, 422, systemPage({ origin, csrf, system, settings: status, error: 'دامنه و تنظیمات SMTP را بررسی کنید. مقادیر قبلی حفظ شدند.' })); }
       return redirect(res, '/admin/system?notice=settings');
     }
+    if (path === '/admin/system/ai') {
+      const settings = aiSettingsData(params, store.getSettings());
+      try { store.saveConfiguration(settings, updateAiSecrets(params, store.getSystem())); }
+      catch (error) { return html(req, res, 422, aiSettingsPage({ origin, csrf, system, settings, error: error instanceof ZodError ? errorText(error) : 'کلید API یا نشانی پراکسی را بررسی کنید. مقادیر قبلی حفظ شدند.' })); }
+      return redirect(res, '/admin/system/ai?notice=settings');
+    }
+    if (path === '/admin/system/mcp') {
+      const switches = Object.fromEntries(['mcp', 'mcpWrite', 'mcpPublish'].map((key) => [key, params.get(key) === 'on']));
+      store.setSettings({ ...store.getSettings(), ...switches });
+      return redirect(res, '/admin/system/mcp?notice=settings');
+    }
+    if (path === '/admin/system/mcp/token' || path === '/admin/system/mcp/revoke') {
+      const revoke = path.endsWith('/revoke');
+      const token = revoke ? '' : random();
+      store.setSystem({ ...store.getSystem(), mcpHash: revoke ? '' : tokenHash(token) });
+      for (const value of sessions.values()) delete value.mcpReveal;
+      if (token) session.mcpReveal = { token, expires: Date.now() + 60_000 };
+      return redirect(res, `/admin/system/mcp${revoke ? '?notice=revoked' : ''}`);
+    }
     if (path === '/admin/password') {
-      const failure = (status, passwordError) => html(req, res, status, systemPage({ origin, csrf, system, passwordError }));
+      const failure = (status, passwordError) => html(req, res, status, systemPage({ origin, csrf, system, settings: status, passwordError }));
       const candidate = params.get('password');
       if (!validPassword(candidate) || candidate !== params.get('confirmation')) return failure(422, 'رمز جدید و تکرار آن باید یکسان و بین ۱۶ تا ۲۵۶ کاراکتر باشند.');
       const ip = req.socket.remoteAddress;
@@ -191,11 +217,6 @@ export function createBlog(options = {}) {
       if (!status.enabled || !status.ai) return redirect(res, `${home}?notice=disabled`);
       run(false);
       return redirect(res, `${home}?notice=waiting`);
-    }
-    if (path === '/admin/settings') {
-      const settings = settingsData(params);
-      try { store.setSettings(settings); return redirect(res, '/admin/settings?notice=settings'); }
-      catch (error) { return html(req, res, 422, settingsPage({ origin, csrf, settings, ready, error: errorText(error) })); }
     }
     if (!match) return res.writeHead(404).end();
     if (match[2]) { if (!id) return res.writeHead(404).end(); store.remove(id); return redirect(res, `${home}?notice=removed`); }

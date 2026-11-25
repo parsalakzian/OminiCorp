@@ -81,21 +81,65 @@ test('system settings take effect without restart and never render secret values
     const smtpPassword = 'fake-smtp-password-for-test';
     const aiKey = 'fake-provider-key-only';
     const proxySecret = 'http://fixture-user:fixture-pass@proxy.example.test:3128';
-    const mcpToken = makeKey();
-    const params = { csrf, smtpPassword, aiKey, proxySecret, mcpToken, siteUrl: 'https://new.example.test', mailEnabled: 'on', smtpMode: 'starttls', smtpUser: 'fixture', smtpHost: 'smtp.example.test', smtpFrom: 'mail@example.test', smtpTo: 'team@example.test' };
+    const aiParams = { csrf, aiKey, proxySecret, aiEndpoint: 'https://api.example.test/v1/chat/completions', aiModel: 'fixture-model', interval: '60', batch: '3' };
+    const params = { csrf, smtpPassword, enabled: 'on', siteUrl: 'https://new.example.test', mailEnabled: 'on', smtpMode: 'starttls', smtpUser: 'fixture', smtpHost: 'smtp.example.test', smtpFrom: 'mail@example.test', smtpTo: 'team@example.test' };
     assert.equal((await post(url, '/admin/system', params, { Cookie: cookie })).status, 303);
     assert.equal((await (await fetch(url + '/api/forms')).json()).code, 'available');
     const sent = await fetch(url + '/api/request', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://new.example.test' }, body: JSON.stringify({ name: 'Client', email: 'client@example.test', message: 'Please send additional information.' }) });
     assert.equal(sent.status, 202);
     assert.deepEqual(delivered, [[smtpPassword, params.smtpTo]]);
-    assert.equal(store.getSystem().mcpHash, tokenHash(mcpToken));
-    const html = await (await fetch(url + '/admin/system', { headers: { Cookie: cookie } })).text();
-    for (const secret of [smtpPassword, aiKey, proxySecret, mcpToken, tokenHash(mcpToken)]) assert.ok(!html.includes(secret));
+    assert.equal((await post(url, '/admin/system/ai', aiParams, { Cookie: cookie })).status, 303);
+    const html = await (await fetch(url + '/admin/system/ai', { headers: { Cookie: cookie } })).text();
+    for (const secret of [smtpPassword, aiKey, proxySecret]) assert.ok(!html.includes(secret));
+    assert.equal(store.getSystem().smtpPassword, smtpPassword);
     assert.match(await (await fetch(url + '/sitemap.xml')).text(), /https:\/\/new\.example\.test\/en\/blog/);
     assert.equal((await post(url, '/admin/system', { ...params, siteUrl: 'http://external.example.test' }, { Cookie: cookie })).status, 422);
     assert.equal(store.getSystem().siteUrl, params.siteUrl);
-    assert.equal((await post(url, '/admin/system', { ...params, smtpPassword: '', aiKey: '', proxySecret: '', mcpToken: '', 'clear.aiKey': 'on' }, { Cookie: cookie })).status, 303);
+    assert.equal((await post(url, '/admin/system', { ...params, smtpPassword: '' }, { Cookie: cookie })).status, 303);
     assert.equal(store.getSystem().smtpPassword, smtpPassword);
+    assert.equal(store.getSystem().aiKey, aiKey);
+    assert.equal((await post(url, '/admin/system/ai', { ...aiParams, aiKey: '', 'clear.aiKey': 'on', batch: '100' }, { Cookie: cookie })).status, 422);
+    assert.equal(store.getSystem().aiKey, aiKey);
+    assert.equal((await post(url, '/admin/system/ai', { ...aiParams, aiKey: '', 'clear.aiKey': 'on' }, { Cookie: cookie })).status, 303);
     assert.equal(store.getSystem().aiKey, '');
+  } finally { await app.close(); }
+});
+
+test('MCP token actions need CSRF, reveal once, rotate atomically and revoke live access', async () => {
+  const store = openBlog(':memory:');
+  const code = makeKey();
+  store.issueSetup(tokenHash(code), Date.now() + 120000);
+  const app = await listen(store);
+  try {
+    const { url } = app;
+    const mcp = '/admin/system/mcp';
+    assert.equal((await post(url, `${mcp}/token`, {})).status, 303);
+    assert.equal(store.getSystem().mcpHash, undefined);
+    assert.equal((await post(url, '/admin/setup', { code, password: original, confirmation: original, siteUrl: 'https://example.test' })).status, 303);
+    const cookie = cookieOf(await post(url, '/admin/login', { password: original }));
+    const headers = { Cookie: cookie };
+    const csrf = await csrfFrom(url, cookie);
+    assert.equal((await post(url, `${mcp}/token`, {}, headers)).status, 403);
+    assert.equal((await post(url, mcp, { csrf, mcp: 'on', mcpWrite: 'on' }, headers)).status, 303);
+    async function generate() {
+      const response = await post(url, `${mcp}/token`, { csrf }, headers);
+      assert.equal(response.status, 303);
+      assert.equal(response.headers.get('location'), mcp);
+      const view = await fetch(url + mcp, { headers });
+      assert.equal(view.headers.get('cache-control'), 'no-store');
+      return (await view.text()).match(/value="([\w-]{43})" readonly[^>]+data-mcp-token/)[1];
+    }
+    const first = await generate();
+    assert.equal(store.getSystem().mcpHash, tokenHash(first));
+    assert.ok(!(await (await fetch(url + mcp, { headers })).text()).includes(first));
+    const check = (token) => fetch(url + '/mcp', { headers: { Authorization: `Bearer ${token}` } });
+    assert.equal((await check(first)).status, 405); // Recognized: GET is not supported by this MCP transport.
+    const second = await generate();
+    assert.notEqual(first, second);
+    assert.equal((await check(first)).status, 401);
+    assert.equal((await check(second)).status, 405);
+    assert.equal((await post(url, `${mcp}/revoke`, { csrf }, headers)).status, 303);
+    assert.equal((await check(second)).status, 404);
+    assert.equal(store.getSettings().mcpWrite, true);
   } finally { await app.close(); }
 });
