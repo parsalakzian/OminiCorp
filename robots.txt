@@ -1,0 +1,4 @@
+User-agent: *
+Disallow: /admin
+Disallow: /mcp
+Sitemap: https://ominicorp.com/sitemap.xml

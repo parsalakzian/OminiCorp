@@ -16,6 +16,7 @@ function header(copy, isFa) {
     <a class="brand" href="#top">${wordmark(copy)}</a>
     <nav class="main-nav" aria-label="${isFa ? 'ناوبری اصلی' : 'Main navigation'}">
       ${['services', 'about', 'contacts'].map((id, i) => `<a href="#${id}">${text(copy.nav[i])}</a>`).join('')}
+      <a href="${isFa ? '/blog' : '/en/blog'}">${isFa ? 'وبلاگ' : 'Journal'}</a>
     </nav>
     <div class="head-actions">
       <a class="locale" href="${isFa ? 'en.html' : 'index.html'}" hreflang="${isFa ? 'en' : 'fa'}" lang="${isFa ? 'en' : 'fa'}" aria-label="${text(copy.alternateName)}">${text(copy.alternate)}</a>

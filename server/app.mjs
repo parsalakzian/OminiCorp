@@ -8,7 +8,7 @@ const mime = {
 };
 const assets = /^\/assets\/(?:[\w-]+\/)*[\w-]+\.(?:css|mjs|webp|woff2|txt)$/;
 
-export function createApp(config, { store, send } = {}) {
+export function createApp(config, { store, send, blog } = {}) {
   const forms = createForms(config, store, send);
   return createServer({ requestTimeout: 20000, headersTimeout: 10000 }, async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -18,6 +18,7 @@ export function createApp(config, { store, send } = {}) {
     try {
       if (!req.url.startsWith('/') || req.url.startsWith('//')) return res.writeHead(400).end();
       const url = new URL(req.url, 'http://localhost');
+      if (blog && await blog.route(req, res, url) !== false) return;
       if (url.pathname.startsWith('/api/') || ['/opt-in', '/opt-out'].includes(url.pathname)) return await forms(req, res, url);
       if (!['GET', 'HEAD'].includes(req.method)) return res.writeHead(405, { Allow: 'GET, HEAD' }).end();
       if (url.pathname === '/healthz') return res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok\n');
