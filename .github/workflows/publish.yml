@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, 'arena/4880796f-ominicorp']
+    branches: [main, 'arena/578cb0c8-ominicorp']
   workflow_dispatch:
 
 permissions:
@@ -42,6 +42,12 @@ jobs:
           curl -fsSI http://127.0.0.1:8080/assets/site.mjs | grep -i 'content-type: text/javascript'
           curl -fsSI http://127.0.0.1:8080/assets/fonts/vazirmatn-arabic-wght-normal.woff2
           curl -fsSI http://127.0.0.1:8080/assets/media/hero.webp
+          curl -fsS http://127.0.0.1:8080/blog | grep 'rel="canonical"'
+          curl -fsS http://127.0.0.1:8080/en/blog/first-ai-workflow | grep 'BlogPosting'
+          curl -fsS http://127.0.0.1:8080/sitemap.xml | grep 'hreflang="en"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/admin)" = 303
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/mcp)" = 404
+          docker compose exec -T website test -f /app/data/blog.sqlite
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/omixy)" = 404
       - name: Container diagnostics
         if: failure()
@@ -51,7 +57,7 @@ jobs:
         run: docker compose down
 
   publish:
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/arena/4880796f-ominicorp')
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/arena/578cb0c8-ominicorp')
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 15

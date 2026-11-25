@@ -2,6 +2,9 @@
 
 صفحهٔ فارسی در `/` و انگلیسی در `/en.html`. کاتالوگ، راهنمای انتخاب، نمایشگر دفتر، تماس مستقیم، فرم درخواست پروژه و عضویت خبرنامه. فونت‌ها، تصویر، استایل و اسکریپت‌ها محلی‌اند. لینک‌های تماس فقط پس از انتخاب کاربر به سرویس خارجی می‌روند.
 
+
+وبلاگ فارسی `/blog` و انگلیسی `/en/blog`؛ پنل `/admin`. تنظیم `blog.env`، سئو، RSS/Atom، AI با پراکسی، زمان‌بندی و MCP در [راهنمای وبلاگ](docs/blog.md) آمده‌اند. Pages فقط مقاله‌های آغازین را ارائه می‌دهد و قابلیت‌های پویا روی کانتینر فعال می‌شوند.
+
 ## راه‌اندازی
 
 با Docker و افزونهٔ Compose نسخهٔ ۲٫۳۰ یا بالاتر:
@@ -64,7 +67,7 @@ docker load -i ominicorp.tar
 docker compose up -d --pull never --wait
 ```
 
-در ساخت نخست از سورس، مرحلهٔ build برای دریافت تصویر پایه و Nodemailer به رجیستری‌ها نیاز دارد: `docker build -t ominicorp:local .` و سپس `OMINICORP_IMAGE=ominicorp:local docker compose up -d --pull never --wait`.
+در ساخت نخست از سورس، مرحلهٔ build برای دریافت تصویر پایه و وابستگی‌های وب‌سرور به رجیستری‌ها نیاز دارد: `docker build -t ominicorp:local .` و سپس `OMINICORP_IMAGE=ominicorp:local docker compose up -d --pull never --wait`.
 
 ## توسعه، تست و انتشار
 

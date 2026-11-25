@@ -6,7 +6,7 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && mkdir -m 700 data
 
 FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5
 LABEL org.opencontainers.image.source="https://github.com/parsalakzian/OminiCorp"
-ENV NODE_ENV=production PORT=8080 SUBSCRIBER_DB=/app/data/subscribers.sqlite
+ENV NODE_ENV=production PORT=8080 SUBSCRIBER_DB=/app/data/subscribers.sqlite BLOG_DB=/app/data/blog.sqlite
 WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=dependencies --chown=node:node /app/data ./data

@@ -3,12 +3,16 @@ services:
     image: ${OMINICORP_IMAGE:-ghcr.io/parsalakzian/ominicorp:latest}
     restart: unless-stopped
     env_file:
+      - path: blog.env
+        required: false
+        format: raw
       - path: smtp.env
         required: false
         format: raw
     environment:
       PORT: '8080'
       SUBSCRIBER_DB: /app/data/subscribers.sqlite
+      BLOG_DB: /app/data/blog.sqlite
     ports:
       - "${OMINICORP_BIND:-127.0.0.1}:${OMINICORP_PORT:-8080}:8080"
     read_only: true
