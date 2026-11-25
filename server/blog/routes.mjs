@@ -2,7 +2,7 @@ import { checkPassword, constantEqual as equal, digest, makeKey as random, parse
 import { ZodError } from 'zod';
 import { aiSettingsPage, dashboard, editor, login, mcpSettingsPage, setupPage, systemPage } from './admin.mjs';
 import { createAutomation } from './automation.mjs';
-import { handleMcp } from './mcp.mjs';
+import { createMcpHttp } from './mcp-http.mjs';
 import { renderArticle, renderList, renderMissing, sitemap } from './render.mjs';
 import { sections, slug } from './schema.mjs';
 import { BlogConflict, openBlog } from './store.mjs';
@@ -49,7 +49,8 @@ export function createBlog(options = {}) {
   const store = options.store || openBlog('data/blog.sqlite');
   const automation = options.automation || createAutomation(store, options.network);
   const sessions = new Map(), loginAttempts = new Map();
-  let loginWindow = 0, totalAttempts = 0, mcpCount = 0, mcpWindow = 0, pending, activeChecks = 0;
+  let loginWindow = 0, totalAttempts = 0, pending, activeChecks = 0;
+  const mcp = createMcpHttp({ store, automation, read });
   const setCookie = (res, value, age, origin) => res.setHeader('Set-Cookie', `${cookieName}=${value}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${age}${origin.startsWith('https:') ? '; Secure' : ''}`);
   function originAllowed(req, origin) {
     if (['cross-site', 'same-site'].includes(req.headers['sec-fetch-site'])) return false;
@@ -187,7 +188,13 @@ export function createBlog(options = {}) {
     }
     if (path === '/admin/system/mcp') {
       const switches = Object.fromEntries(['mcp', 'mcpWrite', 'mcpPublish'].map((key) => [key, params.get(key) === 'on']));
-      store.setSettings({ ...store.getSettings(), ...switches });
+      const requested = (params.get('mcpOrigins') || '').split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+      try {
+        const mcpOrigins = [...new Set(requested.map(parseOrigin))];
+        store.setSettings({ ...store.getSettings(), ...switches, mcpOrigins });
+      } catch {
+        return html(req, res, 422, mcpSettingsPage({ origin, csrf, system, settings: { ...status, ...switches, mcpOrigins: requested.slice(0,10) }, error: 'حداکثر ۱۰ مبدأ معتبر وارد کنید: HTTPS یا HTTP روی localhost؛ بدون مسیر یا ستاره.' }));
+      }
       return redirect(res, '/admin/system/mcp?notice=settings');
     }
     if (path === '/admin/system/mcp/token' || path === '/admin/system/mcp/revoke') {
@@ -225,31 +232,10 @@ export function createBlog(options = {}) {
     catch (error) { return html(req, res, error instanceof BlogConflict ? 409 : 422, editor({ origin, csrf, item: value, id, error: errorText(error) })); }
   }
 
-  async function mcp(req, res) {
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('X-Robots-Tag', 'noindex');
-    const state = store.getSettings();
-    const { mcpHash, siteUrl } = store.getSystem();
-    if (!state.enabled || !state.mcp || !mcpHash) return res.writeHead(404).end();
-    if (!originAllowed(req, siteUrl)) return res.writeHead(403).end();
-    const bearer = req.headers.authorization?.match(/^Bearer ([A-Za-z\d._~-]{32,256})$/i)?.[1];
-    if (!bearer || !equal(tokenHash(bearer), mcpHash)) return res.writeHead(401, { 'WWW-Authenticate': 'Bearer realm="OminiCorp Journal"' }).end();
-    if (req.method !== 'POST') return res.writeHead(405, { Allow: 'POST' }).end();
-    if (req.headers['content-type']?.split(';')[0] !== 'application/json') return res.writeHead(415).end();
-    const now = Date.now();
-    if (now >= mcpWindow) { mcpWindow = now + 60000; mcpCount = 0; }
-    if (++mcpCount > 120) return res.writeHead(429, { 'Retry-After': '60' }).end();
-    const raw = await read(req, 600000);
-    if (raw === null) return res.writeHead(413).end();
-    let body;
-    try { body = JSON.parse(raw); } catch { return res.writeHead(400).end(); }
-    await handleMcp(req, res, body, { store, automation });
-  }
-
   async function route(req, res, url) {
     const path = url.pathname;
     if (path === '/admin/' || path === '/blog/' || path === '/en/blog/') return redirect(res, path.slice(0, -1), 308);
-    if (path === '/mcp') return mcp(req, res);
+    if (path === '/mcp' || path === '/mcp/') return mcp(req, res);
     if (path === '/admin' || path.startsWith('/admin/')) return admin(req, res, url);
     const blog = path.match(/^\/(en\/)?blog(?:\/([^/]+))?$/);
     if (!blog && !['/robots.txt', '/sitemap.xml'].includes(path)) return false;

@@ -100,8 +100,10 @@ test('responsive desk writes both translations, publishes, updates settings and 
   await expect(page.getByRole('heading', { name: 'تنظیمات MCP' })).toBeVisible();
   await expect(page.locator('[name="aiModel"], [name="smtpHost"]')).toHaveCount(0);
   await page.getByRole('checkbox', { name: 'سرور MCP' }).check();
+  await page.locator('[name="mcpOrigins"]').fill('http://localhost:6274');
   await page.getByRole('button', { name: 'ذخیرهٔ دسترسی MCP' }).click();
   await expect(page.getByRole('checkbox', { name: 'سرور MCP' })).toBeChecked();
+  await expect(page.locator('[name="mcpOrigins"]')).toHaveValue('http://localhost:6274');
   await page.getByRole('button', { name: 'ساخت توکن تصادفی' }).click();
   await expect(page.getByLabel('توکن جدید MCP')).toHaveValue(/^[a-zA-Z0-9_-]{43}$/);
   const originalToken = await page.getByLabel('توکن جدید MCP').inputValue();
@@ -128,4 +130,12 @@ test('responsive desk writes both translations, publishes, updates settings and 
   await expect(page).toHaveURL(/\/admin$/);
   await page.getByRole('button', { name: 'خروج' }).click();
   await expect(page).toHaveURL(/\/admin\/login$/);
+});
+
+test('direct MCP navigation renders connection instructions rather than a token error', async ({ page }) => {
+  const response = await page.goto('/mcp/');
+  expect(response.status()).toBe(200);
+  await expect(page.getByRole('heading', { name: 'راهنمای اتصال MCP' })).toBeVisible();
+  await expect(page.getByText('Streamable HTTP', { exact: true })).toBeVisible();
+  await responsive(page);
 });

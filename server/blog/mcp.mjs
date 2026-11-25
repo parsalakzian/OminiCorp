@@ -17,7 +17,7 @@ export async function handleMcp(req, res, body, { store, automation }) {
     try { return await handler(data); }
     catch (error) { return problem(error instanceof BlogConflict ? error.message : 'Editorial operation failed.'); }
   });
-  function writeAllowed() { const state = store.getSettings(); return state.enabled && state.mcp && state.mcpWrite; }
+  function writeAllowed() { const state = store.getSettings(); return state.mcp && state.mcpWrite; }
   function publishAllowed() { return writeAllowed() && store.getSettings().mcpPublish; }
   register('list_articles', 'List journal articles with Persian and English metadata. Drafts are only available when MCP write access is enabled.', z.object({ lang: z.enum(['fa', 'en']).default('fa'), query: z.string().max(100).default(''), section: z.enum(sections).optional(), page: z.number().int().min(1).max(10000).default(1) }), readOnly, ({ lang, query, section, page }) => {
     const { items, total } = store.list({ lang, query, section, page, size: 15, admin: writeAllowed() });
