@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { passwordRecord, tokenHash } from '../server/installation.mjs';
 import { createApp } from '../server/app.mjs';
 import { createAutomation, parseFeed } from '../server/blog/automation.mjs';
 import { renderArticle } from '../server/blog/render.mjs';
@@ -20,7 +21,9 @@ const clone = () => structuredClone(seed[0]);
 async function fixture(t, settings = {}) {
   const store = openBlog(':memory:');
   store.setSettings({ ...defaults, ...settings });
-  const blog = createBlog({ BLOG_SITE_URL: origin, BLOG_COOKIE_SECURE: '0', BLOG_MCP_TOKEN: mcpKey, BLOG_ADMIN_PASSWORD: adminPassword }, { store, timer: false });
+  store.setSystem({ siteUrl: origin, mcpHash: tokenHash(mcpKey) });
+  store.setOwner(await passwordRecord(adminPassword));
+  const blog = createBlog({ store, timer: false });
   const app = createApp({}, { blog });
   app.listen(0, '127.0.0.1');
   await once(app, 'listening');
@@ -90,7 +93,7 @@ test('admin rejects unauthenticated access and unsafe mutations; render escapes 
   const session = await submit(url, '/admin/login', { password: adminPassword });
   assert.equal(session.status, 303);
   const cookie = session.headers.get('set-cookie').split(';')[0];
-  assert.match(session.headers.get('set-cookie'), /HttpOnly; SameSite=Strict/);
+  assert.match(session.headers.get('set-cookie'), /HttpOnly; SameSite=Strict.*Secure/);
   const dashboard = await fetch(`${url}/admin`, { headers: { Cookie: cookie } });
   assert.equal(dashboard.headers.get('x-robots-tag'), 'noindex, nofollow');
   const csrf = (await dashboard.text()).match(/name="csrf" value="([A-Za-z\d_-]{43})"/)[1];
@@ -129,7 +132,8 @@ test('RSS/Atom, bounded generation, proxy path, duplicate prevention, failures a
     value.en.title += ' ' + n; value.fa.title += ' ' + n;
     return Response.json({ choices: [{ message: { content: invalid ? '{}' : JSON.stringify(value) } }] });
   };
-  const worker = createAutomation(store, { BLOG_PROXY_URL: 'http://127.0.0.1:3128', BLOG_AI_KEY: 'fixture-only' }, { request, now: () => time });
+  store.setSystem({ proxySecret: 'http://127.0.0.1:3128', aiKey: 'fixture-only' });
+  const worker = createAutomation(store, { request, now: () => time });
   try {
     assert.equal((await worker.run()).status, 'disabled');
     store.setSettings({ ...defaults, ai: true, useProxy: true, aiModel: 'fake', feeds: ['https://news.example.test/feed'], batch: 1 });
@@ -214,7 +218,8 @@ test('configured forward proxy carries real feed and model HTTP traffic', async 
   });
   const proxyPort = await listen(proxy);
   const store = openBlog(':memory:', { seedContent: false });
-  const automation = createAutomation(store, { BLOG_AI_KEY: 'local-model-test-key' }, {
+  store.setSystem({ aiKey: 'local-model-test-key' });
+  const automation = createAutomation(store, {
     now: () => date,
     // Point the selected HTTPS fixture names at the local mock; all actual requests still use the forward proxy.
     request: (url, options) => networkRequest(`http://127.0.0.1:${targetPort}${new URL(url).pathname}`, options),

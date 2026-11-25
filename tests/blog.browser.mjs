@@ -10,6 +10,11 @@ async function responsive(page) {
 
 async function login(page) {
   await page.goto('/admin');
+  await expect(page).toHaveURL(/\/admin\/setup$/);
+  await page.locator('[name="code"]').fill('z'.repeat(43));
+  await page.locator('[name="password"]').fill('editorial-test-fixture-only');
+  await page.locator('[name="confirmation"]').fill('editorial-test-fixture-only');
+  await page.getByRole('button', { name: 'ساخت حساب ادمین' }).click();
   await expect(page).toHaveURL(/\/admin\/login$/);
   await page.getByLabel('رمز عبور').fill('editorial-test-fixture-only');
   await page.getByRole('button', { name: 'ورود به پنل' }).click();
@@ -71,7 +76,7 @@ test('responsive desk writes both translations, publishes, updates settings and 
   await page.locator('select[name="state"]').selectOption('published');
   await page.getByRole('button', { name: 'ذخیرهٔ مقاله' }).click();
   expect((await page.request.get(`/en/blog/${value.en.slug}`)).status()).toBe(200);
-  await page.getByRole('link', { name: 'تنظیمات' }).click();
+  await page.getByRole('link', { name: 'تنظیمات مجله', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'تنظیمات مجله' })).toBeVisible();
   await responsive(page);
   await page.getByRole('checkbox', { name: 'سرور MCP' }).check();
@@ -83,6 +88,25 @@ test('responsive desk writes both translations, publishes, updates settings and 
   await expect(page.locator('[name="aiModel"]')).toHaveValue('test-model');
   await expect(page.locator('[name="proxyUrl"]')).toHaveValue('http://proxy.example.test:3128');
   await expect(page.getByRole('checkbox', { name: 'سرور MCP' })).toBeChecked();
+  await page.getByRole('link', { name: 'تنظیمات سایت و حساب' }).first().click();
+  await expect(page.getByRole('heading', { name: 'تنظیمات سایت و حساب' })).toBeVisible();
+  await responsive(page);
+  await page.locator('[name="aiKey"]').fill('one-time-test-ai-placeholder');
+  await page.getByRole('button', { name: 'ذخیرهٔ تنظیمات سایت' }).click();
+  await expect(page.locator('[name="aiKey"]')).toHaveValue('');
+  await page.locator('[name="current"]').fill('wrong-password-for-fixture');
+  await page.locator('[name="password"]').fill('updated-editorial-fixture-password');
+  await page.locator('[name="confirmation"]').fill('updated-editorial-fixture-password');
+  await page.getByRole('button', { name: 'تغییر رمز ادمین' }).click();
+  await expect(page.locator('.desk-notice[role="alert"]')).toContainText('رمز فعلی درست نیست');
+  await page.locator('[name="current"]').fill('editorial-test-fixture-only');
+  await page.locator('[name="password"]').fill('updated-editorial-fixture-password');
+  await page.locator('[name="confirmation"]').fill('updated-editorial-fixture-password');
+  await page.getByRole('button', { name: 'تغییر رمز ادمین' }).click();
+  await expect(page).toHaveURL(/\/admin\/login\?changed=1$/);
+  await page.getByLabel('رمز عبور').fill('updated-editorial-fixture-password');
+  await page.getByRole('button', { name: 'ورود به پنل' }).click();
+  await expect(page).toHaveURL(/\/admin$/);
   await page.getByRole('button', { name: 'خروج' }).click();
   await expect(page).toHaveURL(/\/admin\/login$/);
 });

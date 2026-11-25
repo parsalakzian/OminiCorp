@@ -1,15 +1,12 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { checkPassword, constantEqual as equal, digest, makeKey as random, parseOrigin, passwordRecord, tokenHash, updateSystem, validPassword } from '../installation.mjs';
 import { ZodError } from 'zod';
-import { dashboard, editor, login, settingsPage } from './admin.mjs';
+import { dashboard, editor, login, settingsPage, setupPage, systemPage } from './admin.mjs';
 import { createAutomation } from './automation.mjs';
 import { handleMcp } from './mcp.mjs';
 import { renderArticle, renderList, renderMissing, sitemap } from './render.mjs';
 import { sections, slug } from './schema.mjs';
 import { BlogConflict, openBlog } from './store.mjs';
 
-const digest = (value) => createHash('sha256').update(value).digest();
-const equal = (first, second) => typeof first === 'string' && typeof second === 'string' && timingSafeEqual(digest(first), digest(second));
-const random = () => randomBytes(32).toString('base64url');
 const pageNumber = (value) => Math.max(1, Math.min(10000, Math.floor(Number(value) || 1)));
 const html = (req, res, status, value) => {
   const structured = value.match(/<script type="application\/ld\+json">([^]*?)<\/script>/)?.[1];
@@ -45,25 +42,32 @@ function settingsData(params) {
     proxyUrl: (params.get('proxyUrl') || '').trim(), interval: Number(params.get('interval')), batch: Number(params.get('batch')) };
 }
 
-const notices = { saved: 'مقاله ذخیره شد.', removed: 'مقاله حذف شد.', waiting: 'تولید در حال انجام است؛ چند دقیقه بعد وضعیت را بررسی کنید.', disabled: 'تولید در تنظیمات خاموش است.', settings: 'تنظیمات ذخیره شد.' };
+const notices = { saved: 'مقاله ذخیره شد.', removed: 'مقاله حذف شد.', waiting: 'تولید در حال انجام است؛ چند دقیقه بعد وضعیت را بررسی کنید.', disabled: 'تولید در تنظیمات خاموش است.', settings: 'تنظیمات ذخیره شد.', password: 'رمز تغییر کرد. دوباره وارد شوید.' };
 const errorText = (error) => error.kind === 'slug-locked' ? 'نامک هر دو زبان پس از اولین انتشار ثابت است.' : error instanceof BlogConflict ? 'این نامک یا منبع قبلاً در مقالهٔ دیگری ثبت شده است.' : error instanceof ZodError ? `این ورودی‌ها را بررسی کنید: ${[...new Set(error.issues.map((entry) => entry.path.join('.')))].slice(0,12).join('، ')}` : 'ذخیره‌سازی انجام نشد.';
 
-export function createBlog(env = process.env, options = {}) {
-  const originUrl = new URL(env.BLOG_SITE_URL || env.PUBLIC_SITE_URL || 'https://ominicorp.com');
-  if (!['http:', 'https:'].includes(originUrl.protocol) || originUrl.username || originUrl.password || originUrl.pathname !== '/' || originUrl.search || originUrl.hash) throw new Error('BLOG_SITE_URL must be a site origin');
-  const origin = originUrl.origin;
-  const store = options.store || openBlog(env.BLOG_DB || 'data/blog.sqlite', { seedContent: env.BLOG_SEED !== '0' });
-  const automation = options.automation || createAutomation(store, env, options.network);
-  const password = env.BLOG_ADMIN_PASSWORD?.length >= 16 ? env.BLOG_ADMIN_PASSWORD : undefined;
-  const mcpToken = env.BLOG_MCP_TOKEN?.length >= 32 ? env.BLOG_MCP_TOKEN : undefined;
-  const secure = env.BLOG_COOKIE_SECURE !== '0';
+export function createBlog(options = {}) {
+  const store = options.store || openBlog('data/blog.sqlite');
+  const automation = options.automation || createAutomation(store, options.network);
   const sessions = new Map(), loginAttempts = new Map();
-  let loginWindow = 0, totalAttempts = 0, mcpCount = 0, mcpWindow = 0, pending;
-  const ready = { ai: Boolean(env.BLOG_AI_KEY), mcp: Boolean(mcpToken), proxy: Boolean(env.BLOG_PROXY_URL) };
-  const setCookie = (res, value, age) => res.setHeader('Set-Cookie', `${cookieName}=${value}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${age}${secure ? '; Secure' : ''}`);
-  function originAllowed(req) {
+  let loginWindow = 0, totalAttempts = 0, mcpCount = 0, mcpWindow = 0, pending, activeChecks = 0;
+  const setCookie = (res, value, age, origin) => res.setHeader('Set-Cookie', `${cookieName}=${value}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${age}${origin.startsWith('https:') ? '; Secure' : ''}`);
+  function originAllowed(req, origin) {
+    if (['cross-site', 'same-site'].includes(req.headers['sec-fetch-site'])) return false;
     const from = req.headers.origin;
-    return !['cross-site', 'same-site'].includes(req.headers['sec-fetch-site']) && (!from || from === origin || (!secure && from === `http://${req.headers.host}`));
+    if (!from || from === origin) return true;
+    try { return parseOrigin(from) === from && new URL(from).host === req.headers.host; } catch { return false; }
+  }
+  function allowAttempt(ip, now) {
+    if (now >= loginWindow) { loginWindow = now + 15 * 60000; totalAttempts = 0; loginAttempts.clear(); }
+    const attempts = loginAttempts.get(ip) || 0;
+    if (attempts >= 8 || totalAttempts >= 100 || activeChecks >= 4) return false;
+    totalAttempts++;
+    loginAttempts.set(ip, attempts + 1);
+    return true;
+  }
+  async function passwordWork(task) {
+    activeChecks++;
+    try { return await task(); } finally { activeChecks--; }
   }
   function run(scheduled, articleLimit) {
     if (pending) return false;
@@ -77,33 +81,57 @@ export function createBlog(env = process.env, options = {}) {
     res.setHeader('Content-Security-Policy', `${res.getHeader('Content-Security-Policy')}; frame-ancestors 'none'`);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    const system = store.getSystem();
+    const origin = system.siteUrl;
+    const owner = store.getOwner();
+    const ready = { ai: Boolean(system.aiKey), mcp: Boolean(system.mcpHash), proxy: Boolean(system.proxySecret) };
     const path = url.pathname;
     const method = req.method;
     const token = (req.headers.cookie || '').match(/(?:^|;\s*)omini_desk=([A-Za-z\d_-]{43})(?:;|$)/)?.[1];
     const session = sessions.get(token);
-    const logged = session?.expires > Date.now();
+    const logged = session?.expires > Date.now() && session.ownerHash === owner?.hash;
     const home = '/admin';
-    if (method === 'POST' && !originAllowed(req)) return res.writeHead(403).end();
-    if (path === '/admin/login') {
-      if (method === 'GET' || method === 'HEAD') return logged ? redirect(res, home) : html(req, res, 200, login(origin, '', password));
-      if (method !== 'POST' || !password) return res.writeHead(405).end();
+    if (method === 'POST' && !originAllowed(req, origin)) return res.writeHead(403).end();
+    const readOnly = method === 'GET' || method === 'HEAD';
+    if (path === '/admin/setup') {
+      if (owner) return redirect(res, logged ? home : '/admin/login');
+      if (readOnly) return html(req, res, 200, setupPage(origin));
+      if (method !== 'POST') return res.writeHead(405).end();
       if (req.headers['content-type']?.split(';')[0] !== 'application/x-www-form-urlencoded') return res.writeHead(415).end();
-      const now = Date.now();
-      if (now >= loginWindow) { loginWindow = now + 15 * 60000; totalAttempts = 0; loginAttempts.clear(); }
-      const ip = req.socket.remoteAddress, attempts = loginAttempts.get(ip) || 0;
-      if (attempts >= 8 || totalAttempts >= 100) return html(req, res, 429, login(origin, 'تعداد تلاش‌ها زیاد است. بعداً دوباره امتحان کنید.', password));
-      const raw = await read(req, 3000);
+      const ip = req.socket.remoteAddress;
+      const raw = await read(req, 6000);
       if (raw === null) return res.writeHead(413).end();
-      if (!equal(new URLSearchParams(raw).get('password'), password)) {
-        totalAttempts++; loginAttempts.set(ip, attempts + 1);
-        return html(req, res, 401, login(origin, 'رمز عبور درست نیست.', password));
+      if (!allowAttempt(ip, Date.now())) return html(req, res, 429, setupPage(origin, 'بعداً دوباره امتحان کنید.'));
+      const input = new URLSearchParams(raw);
+      const code = input.get('code')?.trim(), value = input.get('password');
+      const hash = code && /^[A-Za-z\d_-]{43}$/.test(code) && tokenHash(code);
+      if (!hash || !store.verifySetup(hash)) return html(req, res, 403, setupPage(origin, 'کد یک‌بارمصرف معتبر نیست یا منقضی شده است.'));
+      if (!validPassword(value) || value !== input.get('confirmation')) return html(req, res, 422, setupPage(origin, 'رمز و تکرار آن باید یکسان و بین ۱۶ تا ۲۵۶ کاراکتر باشند.'));
+      let site;
+      try { site = parseOrigin(input.get('siteUrl')); } catch { return html(req, res, 422, setupPage(origin, 'نشانی سایت معتبر نیست. HTTPS یا HTTP روی localhost وارد کنید.')); }
+      const record = await passwordWork(() => passwordRecord(value));
+      if (!store.finishSetup(hash, record, site)) return html(req, res, 409, setupPage(origin, 'کد مصرف یا منقضی شده است.'));
+      loginAttempts.delete(ip);
+      return redirect(res, '/admin/login');
+    }
+    if (!owner) return redirect(res, '/admin/setup');
+    if (path === '/admin/login') {
+      if (readOnly) return logged ? redirect(res, home) : html(req, res, 200, login(origin, '', true, url.searchParams.get('changed') === '1' ? notices.password : ''));
+      if (method !== 'POST') return res.writeHead(405).end();
+      if (req.headers['content-type']?.split(';')[0] !== 'application/x-www-form-urlencoded') return res.writeHead(415).end();
+      const now = Date.now(), ip = req.socket.remoteAddress;
+      const raw = await read(req, 6000);
+      if (raw === null) return res.writeHead(413).end();
+      if (!allowAttempt(ip, now)) return html(req, res, 429, login(origin, 'تعداد تلاش‌ها زیاد است. بعداً دوباره امتحان کنید.', true));
+      if (!await passwordWork(() => checkPassword(new URLSearchParams(raw).get('password'), owner)) || store.getOwner()?.hash !== owner.hash) {
+        return html(req, res, 401, login(origin, 'رمز عبور درست نیست.', true));
       }
       loginAttempts.delete(ip);
       for (const [key, value] of sessions) if (value.expires <= now) sessions.delete(key);
       if (sessions.size >= 50) sessions.delete(sessions.keys().next().value);
       const key = random();
-      sessions.set(key, { csrf: random(), expires: now + sessionAge * 1000 });
-      setCookie(res, key, sessionAge);
+      sessions.set(key, { csrf: random(), expires: now + sessionAge * 1000, ownerHash: owner.hash });
+      setCookie(res, key, sessionAge, origin);
       return redirect(res, home);
     }
     if (!logged) return redirect(res, '/admin/login');
@@ -127,6 +155,7 @@ export function createBlog(env = process.env, options = {}) {
         return html(req, res, 200, renderArticle(preview[2], origin, { ...draft, published: draft.published || draft.modified }, [], true));
       }
       if (path === '/admin/run') return res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(method === 'HEAD' ? undefined : JSON.stringify({ ...store.getRun(), pending: Boolean(pending) }));
+      if (path === '/admin/system') return html(req, res, 200, systemPage({ origin, csrf, system, notice: issue }));
       if (path === '/admin/settings') return html(req, res, 200, settingsPage({ origin, csrf, settings: status, ready, notice: issue }));
       if (match && !match[2]) return html(req, res, 200, editor({ origin, csrf, item: item || undefined, id }));
       return res.writeHead(404).end();
@@ -137,7 +166,27 @@ export function createBlog(env = process.env, options = {}) {
     if (raw === null) return res.writeHead(413).end();
     const params = new URLSearchParams(raw);
     if (!equal(params.get('csrf'), csrf)) return res.writeHead(403).end();
-    if (path === '/admin/logout') { sessions.delete(token); setCookie(res, '', 0); return redirect(res, '/admin/login'); }
+    if (path === '/admin/logout') { sessions.delete(token); setCookie(res, '', 0, origin); return redirect(res, '/admin/login'); }
+    if (path === '/admin/system') {
+      try { store.setSystem(updateSystem(params, store.getSystem())); }
+      catch { return html(req, res, 422, systemPage({ origin, csrf, system, error: 'دامنه، SMTP، قالب توکن MCP یا آدرس پراکسی را بررسی کنید. مقادیر قبلی حفظ شدند.' })); }
+      return redirect(res, '/admin/system?notice=settings');
+    }
+    if (path === '/admin/password') {
+      const failure = (status, passwordError) => html(req, res, status, systemPage({ origin, csrf, system, passwordError }));
+      const candidate = params.get('password');
+      if (!validPassword(candidate) || candidate !== params.get('confirmation')) return failure(422, 'رمز جدید و تکرار آن باید یکسان و بین ۱۶ تا ۲۵۶ کاراکتر باشند.');
+      const ip = req.socket.remoteAddress;
+      if (!allowAttempt(ip, Date.now())) return failure(429, 'بعداً دوباره امتحان کنید.');
+      if (!await passwordWork(() => checkPassword(params.get('current'), owner))) return failure(403, 'رمز فعلی درست نیست.');
+      const record = await passwordWork(() => passwordRecord(candidate));
+      if (store.getOwner()?.hash !== owner.hash) return res.writeHead(409).end();
+      store.setOwner(record);
+      sessions.clear();
+      loginAttempts.delete(ip);
+      setCookie(res, '', 0, origin);
+      return redirect(res, '/admin/login?changed=1');
+    }
     if (path === '/admin/generate') {
       if (!status.enabled || !status.ai) return redirect(res, `${home}?notice=disabled`);
       run(false);
@@ -159,9 +208,11 @@ export function createBlog(env = process.env, options = {}) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Robots-Tag', 'noindex');
     const state = store.getSettings();
-    if (!state.enabled || !state.mcp || !mcpToken) return res.writeHead(404).end();
-    if (!originAllowed(req)) return res.writeHead(403).end();
-    if (!equal(req.headers.authorization, `Bearer ${mcpToken}`)) return res.writeHead(401, { 'WWW-Authenticate': 'Bearer realm="OminiCorp Journal"' }).end();
+    const { mcpHash, siteUrl } = store.getSystem();
+    if (!state.enabled || !state.mcp || !mcpHash) return res.writeHead(404).end();
+    if (!originAllowed(req, siteUrl)) return res.writeHead(403).end();
+    const bearer = req.headers.authorization?.match(/^Bearer ([A-Za-z\d._~-]{32,256})$/i)?.[1];
+    if (!bearer || !equal(tokenHash(bearer), mcpHash)) return res.writeHead(401, { 'WWW-Authenticate': 'Bearer realm="OminiCorp Journal"' }).end();
     if (req.method !== 'POST') return res.writeHead(405, { Allow: 'POST' }).end();
     if (req.headers['content-type']?.split(';')[0] !== 'application/json') return res.writeHead(415).end();
     const now = Date.now();
@@ -181,6 +232,7 @@ export function createBlog(env = process.env, options = {}) {
     if (path === '/admin' || path.startsWith('/admin/')) return admin(req, res, url);
     const blog = path.match(/^\/(en\/)?blog(?:\/([^/]+))?$/);
     if (!blog && !['/robots.txt', '/sitemap.xml'].includes(path)) return false;
+    const origin = store.getSystem().siteUrl;
     if (!['GET', 'HEAD'].includes(req.method)) return res.writeHead(405, { Allow: 'GET, HEAD' }).end();
     res.setHeader('Cache-Control', 'public, max-age=60');
     if (path === '/robots.txt') return res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }).end(`User-agent: *\nDisallow: /admin\nDisallow: /mcp\nSitemap: ${origin}/sitemap.xml\n`);

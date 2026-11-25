@@ -2,7 +2,7 @@ export function validEmail(value) {
   return typeof value === 'string' && value.length <= 254 && /^[a-z\d.!#$%&'*+/=?^_`{|}~-]+@[a-z\d](?:[a-z\d-]*[a-z\d])?(?:\.[a-z\d](?:[a-z\d-]*[a-z\d])?)+$/i.test(value);
 }
 
-export function readConfig(env = process.env) {
+export function readConfig(env = {}) {
   const port = Number(env.PORT || 4173);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT');
   const database = env.SUBSCRIBER_DB || 'data/subscribers.sqlite';

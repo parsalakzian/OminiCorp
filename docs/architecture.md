@@ -43,4 +43,4 @@
 | `site/forms.mjs`, `assets/forms.mjs`, `assets/forms.css` | متن و قالب فرم‌ها، وضعیت ارسال و طراحی فرم |
 | `assets/tv.mjs`, `assets/tv.css` | پخش، تمام‌صفحه، بیدار ماندن نمایشگر و انیمیشن‌های TV |
 | `tests/server.test.mjs` | تست HTTP، مرور عضویت و تحویل به SMTP محلی آزمایشی |
-| `smtp.env.example` | الگوی اختیاری SMTP بدون اطلاعات محرمانه |
+| `server/installation.mjs`, `server/setup.mjs` | اعتبارسنجی و احراز هویت میزبان برای راه‌اندازی یک‌بارمصرف |
