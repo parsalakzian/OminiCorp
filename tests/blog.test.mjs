@@ -236,3 +236,35 @@ test('configured forward proxy carries real feed and model HTTP traffic', async 
     store.close();
   }
 });
+
+test('MCP browser guide is public while CORS, proxy-friendly alias and the protocol still enforce Bearer auth', async (t) => {
+  const inspector = 'http://localhost:6274';
+  const { store, url } = await fixture(t, { mcp: true, enabled: false, mcpOrigins: [inspector] });
+  const endpoint = `${url}/mcp/`;
+  const guide = await fetch(endpoint, { headers: { Accept: 'text/html' } });
+  assert.equal(guide.status, 200);
+  assert.match(await guide.text(), /Streamable HTTP/);
+  assert.equal(guide.headers.get('cache-control'), 'no-store');
+  const preflight = (origin, headers = 'authorization, content-type, mcp-protocol-version') => fetch(endpoint, { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': headers } });
+  const allowed = await preflight(inspector);
+  assert.equal(allowed.status, 204);
+  assert.equal(allowed.headers.get('access-control-allow-origin'), inspector);
+  assert.equal(allowed.headers.get('access-control-allow-credentials'), null);
+  const denied = await preflight('https://another.example');
+  assert.equal(denied.status, 403);
+  assert.equal(denied.headers.get('access-control-allow-origin'), null);
+  assert.equal((await preflight(inspector, 'x-custom-header')).status, 403);
+  const credentialsMissing = await fetch(endpoint, { method: 'POST', headers: { Origin: inspector } });
+  assert.equal(credentialsMissing.status, 401);
+  assert.match((await credentialsMissing.json()).error, /reverse proxy/);
+  const auth = { Origin: inspector, Authorization: `Bearer ${mcpKey}` };
+  const unsupportedSse = await fetch(endpoint, { headers: { ...auth, Accept: 'text/event-stream' } });
+  assert.equal(unsupportedSse.status, 405);
+  const client = new Client({ name: 'inspector-test', version: '1.0.0' });
+  await client.connect(new StreamableHTTPClientTransport(new URL(endpoint), { requestInit: { headers: auth } }));
+  try { assert.ok((await client.listTools()).tools.some(({ name }) => name === 'list_articles')); }
+  finally { await client.close(); }
+  store.setSettings({ ...store.getSettings(), mcp: false });
+  assert.equal((await fetch(endpoint, { headers: { Accept: 'text/html' } })).status, 200);
+  assert.equal((await fetch(endpoint, { method: 'POST', headers: auth })).status, 404);
+});

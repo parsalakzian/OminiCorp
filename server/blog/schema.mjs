@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseOrigin } from '../installation.mjs';
 
 export const languages = ['fa', 'en'];
 export const sections = ['engineering', 'security', 'ai', 'design'];
@@ -22,6 +23,9 @@ export const articleSchema = z.object({
 const https = (value) => webUrl(value) && new URL(value).protocol === 'https:';
 export const settingsSchema = z.object({
   enabled: z.boolean(), mcp: z.boolean(), mcpWrite: z.boolean(), mcpPublish: z.boolean(),
+  mcpOrigins: z.array(z.string().max(350).refine((origin) => {
+    try { return parseOrigin(origin) === origin; } catch { return false; }
+  })).max(10).default([]),
   ai: z.boolean(), scheduling: z.boolean(), autopublish: z.boolean(),
   aiEndpoint: z.string().max(500).refine((value) => !value || https(value) && !new URL(value).search && !new URL(value).hash),
   aiModel: z.string().trim().max(120), useProxy: z.boolean(),
@@ -35,7 +39,7 @@ export const settingsSchema = z.object({
   interval: z.number().int().min(15).max(10080), batch: z.number().int().min(1).max(20),
 });
 export const defaults = {
-  enabled: true, mcp: false, mcpWrite: false, mcpPublish: false, ai: false, scheduling: false, autopublish: false,
+  enabled: true, mcp: false, mcpWrite: false, mcpPublish: false, mcpOrigins: [], ai: false, scheduling: false, autopublish: false,
   aiEndpoint: 'https://api.openai.com/v1/chat/completions', aiModel: '', useProxy: false, proxyUrl: '', feeds: [], interval: 60, batch: 3,
 };
 
