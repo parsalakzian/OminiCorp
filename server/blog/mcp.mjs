@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 import { articleSchema, sections } from './schema.mjs';
+import { decodeImage, maxImageBase64, MediaError, mediaId } from './media.mjs';
 import { BlogConflict } from './store.mjs';
 
 const result = (value, isError = false) => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value, ...(isError ? { isError } : {}) });
@@ -15,7 +16,7 @@ export async function handleMcp(req, res, body, { store, automation }) {
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   const register = (name, description, inputSchema, annotations, handler) => mcp.registerTool(name, { description, inputSchema, annotations }, async (data) => {
     try { return await handler(data); }
-    catch (error) { return problem(error instanceof BlogConflict ? error.message : 'Editorial operation failed.'); }
+    catch (error) { return problem(error instanceof BlogConflict || error instanceof MediaError ? error.message : 'Editorial operation failed.'); }
   });
   function writeAllowed() { const state = store.getSettings(); return state.mcp && state.mcpWrite; }
   function publishAllowed() { return writeAllowed() && store.getSettings().mcpPublish; }
@@ -28,8 +29,12 @@ export async function handleMcp(req, res, body, { store, automation }) {
     return item && (item.state === 'published' || writeAllowed()) ? result({ article: item }) : problem('Article not found.');
   });
   if (settings.mcpWrite) {
-    register('create_article', 'Create a bilingual draft using the complete editorial schema. Use publish_article to publish.', z.object({ article: articleSchema.omit({ state: true }) }), { destructiveHint: false, openWorldHint: false }, ({ article }) => writeAllowed() ? result({ article: store.save({ ...article, state: 'draft' }) }) : problem('Write access is disabled.'));
-    register('update_article', 'Replace both language versions and metadata without changing the publication state.', z.object({ id, article: articleSchema.omit({ state: true }) }), { idempotentHint: true, openWorldHint: false }, (input) => {
+    register('upload_image', 'Upload a PNG, JPEG or WebP up to 3 MiB as standard Base64. Use its returned url as cover.src, or in either body as ![alt](url). Uploads are private until referenced by a published article.', z.object({ base64: z.string().min(4).max(maxImageBase64) }), { idempotentHint: true, destructiveHint: false, openWorldHint: false }, ({ base64 }) => writeAllowed() ? result({ image: store.uploadImage(decodeImage(base64)) }) : problem('Write access is disabled.'));
+    register('list_images', 'List editorial media, including private uploads and the number of referencing articles.', z.object({ page: z.number().int().min(1).max(10000).default(1) }), readOnly, ({ page }) => writeAllowed() ? result({ page, ...store.listImages(page) }) : problem('Write access is disabled.'));
+    register('delete_image', 'Remove an unused image. Images referenced by drafts or published articles cannot be removed.', z.object({ id: z.string().regex(mediaId) }), { idempotentHint: true, destructiveHint: true, openWorldHint: false }, ({ id }) => writeAllowed() ? result({ removed: store.removeImage(id) }) : problem('Write access is disabled.'));
+
+    register('create_article', 'Create a bilingual draft. cover.src accepts an uploaded media URL or external HTTPS image; omit cover to use the journal default. Use publish_article to publish.', z.object({ article: articleSchema.omit({ state: true }) }), { destructiveHint: false, openWorldHint: false }, ({ article }) => writeAllowed() ? result({ article: store.save({ ...article, state: 'draft' }) }) : problem('Write access is disabled.'));
+    register('update_article', 'Replace both language versions and metadata without changing publication state. Omit cover to keep it; pass null to restore the default.', z.object({ id, article: articleSchema.omit({ state: true }) }), { idempotentHint: true, openWorldHint: false }, (input) => {
       if (!writeAllowed()) return problem('Write access is disabled.');
       const old = store.find(input.id);
       if (!old) return problem('Article not found.');

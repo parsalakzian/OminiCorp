@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mediaFromPath } from './media.mjs';
 import { parseOrigin } from '../installation.mjs';
 
 export const languages = ['fa', 'en'];
@@ -16,8 +17,13 @@ export const translation = z.object({
   title: words(120, 5), slug, excerpt: words(255, 15), seoTitle: words(72, 5), description: words(180, 30),
   tags: z.array(words(36)).min(1).max(8), body: words(30000, 70),
 });
+export const coverSchema = z.object({
+  src: z.string().trim().max(1800).refine((value) => Boolean(mediaFromPath(value)) || (value.startsWith('https://') && webUrl(value))),
+  altFa: z.string().trim().max(180).default(''), altEn: z.string().trim().max(180).default(''),
+});
 export const articleSchema = z.object({
   section: z.enum(sections), author: words(80), state: z.enum(['draft', 'published']),
+  cover: coverSchema.nullable().optional(),
   sources: z.array(source).max(10), fa: translation, en: translation,
 });
 const https = (value) => webUrl(value) && new URL(value).protocol === 'https:';
