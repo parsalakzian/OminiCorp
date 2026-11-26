@@ -1,5 +1,5 @@
 import { documentPage, articlePath, escape } from './render.mjs';
-import { defaultCover, mediaFromPath, mediaPreview } from './media.mjs';
+import { defaultCover, maxImageBytes, maxImageMiB, mediaFromPath, mediaPreview } from './media.mjs';
 import { coverSchema, languages } from './schema.mjs';
 import { categoryThemes, maxCategories } from './categories.mjs';
 import { pagination } from './pagination.mjs';
@@ -51,14 +51,14 @@ export function confirmCategoryDelete({ origin, csrf, entry, error }) {
   return desk(origin, csrf, 'categories', 'حذف دسته', 'فقط دستهٔ بدون مقاله قابل حذف است.', `${message(error, true)}<section class="desk-card desk-editor"><p>آیا دستهٔ «${escape(entry.nameFa)}» حذف شود؟ صفحهٔ عمومی دسته دیگر در دسترس نخواهد بود.</p><form method="post" action="/admin/categories/edit/${entry.slug}/delete" class="desk-tools">${adminCsrf(csrf)}<button class="button button-muted desk-danger" type="submit">تأیید حذف دسته</button><a class="button button-muted" href="/admin/categories">لغو</a></form></section>`);
 }
 
-const upload = (target, label, button, altLabel = '') => `<div class="desk-upload" data-image-upload="${target}" hidden>
+const upload = (target, label, button, altLabel = '') => `<div class="desk-upload" data-image-upload="${target}" data-max-image-bytes="${maxImageBytes}" hidden>
   <label class="desk-field">${label}<input type="file" accept="image/png,image/jpeg,image/webp"></label>
   ${altLabel ? '<label class="desk-field">' + altLabel + '<input data-inline-alt maxlength="180"></label>' : ''}
   <button class="button button-muted" type="button">${button}</button><output role="status"></output></div>`;
 
 export function mediaLibrary({ origin, csrf, items, total, page, notice, error }) {
   return desk(origin, csrf, 'media', 'کتابخانهٔ تصاویر', 'تصویر را یک بار بارگذاری کنید و در چند مقاله به کار ببرید.', `${message(notice)}${message(error, true)}<section class="desk-card desk-editor" data-media-library>${adminCsrf(csrf)}
-    <p>PNG، JPEG یا WebP تا ۳ مگابایت. تصویر بارگذاری‌شده فقط وقتی عمومی می‌شود که دست‌کم یک مقالهٔ منتشرشده از آن استفاده کند.</p>
+    <p>PNG، JPEG یا WebP تا ${maxImageMiB} مگابایت. تصویر بارگذاری‌شده فقط وقتی عمومی می‌شود که دست‌کم یک مقالهٔ منتشرشده از آن استفاده کند.</p>
     ${upload('library', 'انتخاب فایل تصویر', 'بارگذاری تصویر')}<noscript><p>برای بارگذاری تصویر، جاوااسکریپت را فعال کنید.</p></noscript>
     ${items.length ? `<div class="desk-media-grid">${items.map((item) => `<article class="desk-card desk-media-item"><img src="${mediaPreview(item.id)}" alt="" loading="lazy"><p><bdi dir="ltr">${item.width} × ${item.height} · ${Math.ceil(item.size / 1024)} KB</bdi> · ${item.used} مقاله</p>
       <label class="desk-field">مسیر تصویر<input readonly dir="ltr" value="${item.url}"></label><div class="desk-tools"><button type="button" class="button button-muted button-small" data-copy-image>کپی مسیر</button><form method="post" action="${mediaPreview(item.id)}/delete" data-confirm="این تصویر حذف شود؟">${adminCsrf(csrf)}<button class="button button-muted button-small desk-danger" type="submit"${item.used ? ' disabled' : ''}>حذف تصویر</button></form></div></article>`).join('')}</div>` : '<p>هنوز تصویری در کتابخانه نیست.</p>'}

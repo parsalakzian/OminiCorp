@@ -68,14 +68,15 @@ for (const widget of document.querySelectorAll('[data-image-upload]')) {
   button.addEventListener('click', async () => {
     const selected = file.files[0];
     if (!selected) { output.textContent = 'ابتدا یک فایل انتخاب کنید.'; return; }
-    if (selected.size > 3 * 1024 * 1024) { output.textContent = 'اندازهٔ تصویر نباید از ۳ مگابایت بیشتر باشد.'; return; }
+    const limit = Number(widget.dataset.maxImageBytes);
+    if (selected.size > limit) { output.textContent = `اندازهٔ تصویر نباید از ${limit / 1024 ** 2} مگابایت بیشتر باشد.`; return; }
     button.disabled = true;
     output.textContent = 'در حال بارگذاری…';
     try {
       const response = await fetch('/admin/media', { method: 'POST', body: selected, redirect: 'error',
         headers: { 'Content-Type': selected.type || 'application/octet-stream', 'X-CSRF-Token': csrf }, signal: AbortSignal.timeout(25000) });
       if (!response.ok) {
-        output.textContent = response.status === 507 ? 'فضای کتابخانه پر شده است. تصاویر بدون استفاده را حذف کنید.' : response.status === 403 ? 'دسترسی رد شد. دوباره وارد پنل شوید.' : 'فایل پذیرفته نشد. قالب و اندازهٔ تصویر را بررسی کنید.';
+        output.textContent = response.status === 413 ? 'حجم فایل از سقف بارگذاری برنامه یا پراکسی بیشتر است.' : response.status === 403 ? 'دسترسی رد شد. دوباره وارد پنل شوید.' : 'فایل پذیرفته نشد. قالب و اندازهٔ تصویر را بررسی کنید.';
         return;
       }
       const { url } = await response.json();
