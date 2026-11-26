@@ -30,6 +30,8 @@ test('bilingual journal layout, filtering, search and reciprocal article links w
   await page.getByRole('link', { name: 'وبلاگ', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   await expect(page.locator('.journal-card')).toHaveCount(3);
+  await expect(page.locator('.journal-art img')).toBeVisible();
+  await expect(page.locator('.journal-card-cover img[src="/assets/media/blog.webp"]')).toHaveCount(3);
   await responsive(page);
   await page.getByRole('link', { name: 'English' }).click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
@@ -117,6 +119,14 @@ test('responsive desk writes both translations, publishes, updates settings and 
   await page.locator('select[name="state"]').selectOption('published');
   await page.getByRole('button', { name: 'ذخیرهٔ مقاله' }).click();
   expect((await page.request.get(`/en/blog/${value.en.slug}`)).status()).toBe(200);
+  await page.goto('/en/blog');
+  await expect(page.locator('.journal-art')).toHaveAttribute('href', `/en/blog/${value.en.slug}`);
+  const featured = page.locator('.journal-art img');
+  await expect(featured).toHaveAttribute('src', photo);
+  await expect(featured).toHaveJSProperty('naturalWidth', 1250);
+  await expect(featured).toBeVisible();
+  const publicCard = page.locator('.journal-card').filter({ hasText: value.en.title });
+  await expect(publicCard.locator('.journal-card-cover img')).toHaveAttribute('src', photo);
   await page.goto(`/en/blog/${value.en.slug}`);
   await expect(page.getByAltText('Inline editorial logo')).toHaveAttribute('src', inline);
   await expect(page.getByAltText('Technology journal cover')).toHaveAttribute('src', photo);
@@ -124,6 +134,7 @@ test('responsive desk writes both translations, publishes, updates settings and 
   await page.locator('.article-header .journal-meta').getByRole('link', { name: 'Product Design' }).click();
   await expect(page.locator('h1')).toHaveText('Product Design');
   await expect(page.locator('.journal-card')).toHaveCount(1);
+  await expect(page.locator('.journal-card-cover img')).toHaveAttribute('src', photo);
   await page.getByRole('link', { name: 'فارسی', exact: true }).click();
   await expect(page.locator('h1')).toHaveText('طراحی محصول');
   await responsive(page);
@@ -141,6 +152,13 @@ test('responsive desk writes both translations, publishes, updates settings and 
   await expect(page.getByAltText('Technology journal cover')).toHaveAttribute('src', external);
   await expect(page.getByAltText('Technology journal cover')).toHaveJSProperty('complete', true);
   expect(await page.getByAltText('Technology journal cover').evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
+  await page.goto('/en/blog?q=bilingual');
+  await expect(page.locator('.journal-art')).toHaveCount(0);
+  await expect(publicCard.locator('.journal-card-cover img')).toHaveAttribute('src', external);
+  await expect.poll(() => publicCard.locator('.journal-card-cover img').evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
+  await page.goto('/en/blog');
+  await expect(featured).toHaveAttribute('src', external);
+  await expect.poll(() => featured.evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
   expect((await page.request.get(photo)).status()).toBe(404);
   await page.goto('/admin');
   await row.getByRole('link', { name: 'حذف', exact: true }).click();

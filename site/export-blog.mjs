@@ -3,7 +3,7 @@ import { defaultCategories } from '../server/blog/categories.mjs';
 import { sampleDate, seed } from '../server/blog/seed.mjs';
 
 export function exportBlog(origin) {
-  const articles = seed.map((article, offset) => ({ ...article, id: offset + 1, published: sampleDate, modified: sampleDate }));
+  const articles = seed.map((article, offset) => ({ ...article, id: offset + 1, published: sampleDate, modified: sampleDate })).reverse();
   const categories = defaultCategories.map((entry) => ({ ...entry, count: articles.filter((item) => item.section === entry.slug).length }));
   const output = new Map();
   for (const lang of ['fa', 'en']) {
