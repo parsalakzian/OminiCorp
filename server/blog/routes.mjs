@@ -4,7 +4,8 @@ import { aiSettingsPage, categoriesPage, categoryEditor, confirmCategoryDelete, 
 import { CategoryError, categorySchema, categorySlug } from './categories.mjs';
 import { createAutomation } from './automation.mjs';
 import { createMcpHttp } from './mcp-http.mjs';
-import { maxImageBytes, MediaError, mediaFromPath, sendImage } from './media.mjs';
+import { createImageImporter } from './media-import.mjs';
+import { imageContentTypes, maxImageBytes, MediaError, mediaFromPath, sendImage } from './media.mjs';
 import { listUrl, renderArticle, renderList, renderMissing, sitemap } from './render.mjs';
 import { slug } from './schema.mjs';
 import { BlogConflict, openBlog } from './store.mjs';
@@ -49,14 +50,14 @@ function aiSettingsData(params, stored) {
 }
 
 const notices = { categorySaved: 'دسته ذخیره شد.', categoryRemoved: 'دسته حذف شد.', imageUploaded: 'تصویر بارگذاری شد.', imageRemoved: 'تصویر حذف شد.', saved: 'مقاله ذخیره شد.', removed: 'مقاله حذف شد.', waiting: 'تولید در حال انجام است؛ چند دقیقه بعد وضعیت را بررسی کنید.', disabled: 'تولید در تنظیمات خاموش است.', settings: 'تنظیمات ذخیره شد.', password: 'رمز تغییر کرد. دوباره وارد شوید.', revoked: 'توکن لغو شد؛ اتصال با آن دیگر ممکن نیست.' };
-const errorText = (error) => error instanceof CategoryError ? 'دستهٔ مقاله را از فهرست فعلی انتخاب کنید.' : error instanceof MediaError ? 'مسیر تصاویر را بررسی کنید. فقط تصویرهای موجود در کتابخانه و حداکثر ۴۰ تصویر در هر مقاله مجازند.' : error.kind === 'slug-locked' ? 'نامک هر دو زبان پس از اولین انتشار ثابت است.' : error instanceof BlogConflict ? 'این نامک یا منبع قبلاً در مقالهٔ دیگری ثبت شده است.' : error instanceof ZodError ? `این ورودی‌ها را بررسی کنید: ${[...new Set(error.issues.map((entry) => entry.path.join('.')))].slice(0,12).join('، ')}` : 'ذخیره‌سازی انجام نشد.';
+const errorText = (error) => error instanceof CategoryError ? 'دستهٔ مقاله را از فهرست فعلی انتخاب کنید.' : error instanceof MediaError ? 'مسیر تصاویر را بررسی کنید. فقط تصویرهای موجود در کتابخانه مجازند.' : error.kind === 'slug-locked' ? 'نامک هر دو زبان پس از اولین انتشار ثابت است.' : error instanceof BlogConflict ? 'این نامک یا منبع قبلاً در مقالهٔ دیگری ثبت شده است.' : error instanceof ZodError ? `این ورودی‌ها را بررسی کنید: ${[...new Set(error.issues.map((entry) => entry.path.join('.')))].slice(0,12).join('، ')}` : 'ذخیره‌سازی انجام نشد.';
 
 export function createBlog(options = {}) {
   const store = options.store || openBlog('data/blog.sqlite');
   const automation = options.automation || createAutomation(store, options.network);
   const sessions = new Map(), loginAttempts = new Map();
   let loginWindow = 0, totalAttempts = 0, pending, activeChecks = 0;
-  const mcp = createMcpHttp({ store, automation, read });
+  const mcp = createMcpHttp({ store, automation, readBytes, importImage: options.importImage || createImageImporter() });
   const setCookie = (res, value, age, origin) => res.setHeader('Set-Cookie', `${cookieName}=${value}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${age}${origin.startsWith('https:') ? '; Secure' : ''}`);
   function originAllowed(req, origin) {
     if (['cross-site', 'same-site'].includes(req.headers['sec-fetch-site'])) return false;
@@ -154,7 +155,7 @@ export function createBlog(options = {}) {
     if (path === '/admin/media' && method === 'POST') {
       if (!equal(req.headers['x-csrf-token'], csrf)) return res.writeHead(403).end();
       const type = req.headers['content-type'];
-      if (!['image/png', 'image/jpeg', 'image/webp', 'application/octet-stream'].includes(type)) return res.writeHead(415).end();
+      if (!imageContentTypes.includes(type)) return res.writeHead(415).end();
       const data = await readBytes(req, maxImageBytes);
       if (data === null) return res.writeHead(413).end();
       if (sessions.get(token) !== session || session.expires <= Date.now()) return res.writeHead(403).end();
@@ -163,7 +164,7 @@ export function createBlog(options = {}) {
         return res.writeHead(201, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify(uploaded));
       } catch (error) {
         if (!(error instanceof MediaError)) throw error;
-        return res.writeHead(error.kind === 'quota' ? 507 : 422).end();
+        return res.writeHead(422).end();
       }
     }
     if (mediaMatch && !mediaMatch[2]) return sendImage(req, res, readOnly ? store.getImage(mediaMatch[1]) : undefined);
@@ -298,7 +299,7 @@ export function createBlog(options = {}) {
   async function route(req, res, url) {
     const path = url.pathname;
     if (path === '/admin/' || /^\/(?:en\/)?blog(?:\/category\/[a-z0-9-]+)?\/$/.test(path)) return redirect(res, path.slice(0, -1) + url.search, 308);
-    if (path === '/mcp' || path === '/mcp/') return mcp(req, res);
+    if (path === '/mcp' || path === '/mcp/' || path === '/mcp/media' || path === '/mcp/media/') return mcp(req, res, path.startsWith('/mcp/media'));
     const media = mediaFromPath(path);
     if (media) return sendImage(req, res, ['GET', 'HEAD'].includes(req.method) && store.getSettings().enabled ? store.getImage(media, true) : undefined);
     if (path === '/admin' || path.startsWith('/admin/')) return admin(req, res, url);

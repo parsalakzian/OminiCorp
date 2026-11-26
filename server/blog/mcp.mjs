@@ -3,7 +3,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod';
 import { articleSchema } from './schema.mjs';
 import { CategoryError, categorySchema, categorySlug } from './categories.mjs';
-import { decodeImage, maxImageBase64, MediaError, mediaId } from './media.mjs';
+import { decodeImage, maxImageInput, maxImageMiB, MediaError, mediaId } from './media.mjs';
 import { BlogConflict } from './store.mjs';
 
 const result = (value, isError = false) => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value, ...(isError ? { isError } : {}) });
@@ -11,7 +11,7 @@ const problem = (error) => result({ error }, true);
 const id = z.number().int().positive();
 const readOnly = { readOnlyHint: true, openWorldHint: false };
 
-export async function handleMcp(req, res, body, { store, automation }) {
+export async function handleMcp(req, res, body, { store, automation, importImage, canWrite, signal }) {
   const settings = store.getSettings();
   const mcp = new McpServer({ name: 'ominicorp-journal', version: '1.0.0' });
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
@@ -19,7 +19,7 @@ export async function handleMcp(req, res, body, { store, automation }) {
     try { return await handler(data); }
     catch (error) { return problem(error instanceof BlogConflict || error instanceof MediaError || error instanceof CategoryError ? error.message : 'Editorial operation failed.'); }
   });
-  function writeAllowed() { const state = store.getSettings(); return state.mcp && state.mcpWrite; }
+  function writeAllowed() { const state = store.getSettings(); return state.mcp && state.mcpWrite && canWrite(); }
   function publishAllowed() { return writeAllowed() && store.getSettings().mcpPublish; }
   register('list_articles', 'List journal articles with Persian and English metadata. Drafts are only available when MCP write access is enabled.', z.object({ lang: z.enum(['fa', 'en']).default('fa'), query: z.string().max(100).default(''), section: categorySlug.optional(), state: z.enum(['draft', 'published']).optional(), page: z.number().int().min(1).max(10000).default(1) }), readOnly, ({ lang, query, section, state, page }) => {
     const { items, total } = store.list({ lang, query, section, state, page, size: 15, admin: writeAllowed() });
@@ -31,7 +31,13 @@ export async function handleMcp(req, res, body, { store, automation }) {
   });
   register('list_categories', 'List bilingual journal categories in display order, with article counts. Drafts count only with write access.', z.object({}), readOnly, () => result({ categories: store.categories(writeAllowed()) }));
   if (settings.mcpWrite) {
-    register('upload_image', 'Upload a PNG, JPEG or WebP up to 3 MiB as standard Base64. Use its returned url as cover.src, or in either body as ![alt](url). Uploads are private until referenced by a published article.', z.object({ base64: z.string().min(4).max(maxImageBase64) }), { idempotentHint: true, destructiveHint: false, openWorldHint: false }, ({ base64 }) => writeAllowed() ? result({ image: store.uploadImage(decodeImage(base64)) }) : problem('Write access is disabled.'));
+    register('upload_image', `Save a PNG, JPEG or WebP (up to ${maxImageMiB} MiB). If you have a direct public HTTPS image link, pass url only; the server downloads the original. If you have file bytes, pass base64 only. For local files that the MCP client cannot encode or send, use authenticated POST /mcp/media with the raw file body. Use returned image.url as cover.src or as ![alt](url) in article text.`, z.object({ url: z.string().trim().url().max(4096).optional(), base64: z.string().min(4).max(maxImageInput).optional() }), { destructiveHint: false, openWorldHint: true }, async ({ base64, url }) => {
+      if (!writeAllowed()) return problem('Write access is disabled.');
+      if (Boolean(url) === Boolean(base64)) return problem('Send exactly one input: url for a direct public HTTPS image, or base64 for file bytes.');
+      const { data, declaredType } = url ? { data: await importImage(url, signal) } : decodeImage(base64);
+      if (signal.aborted || !writeAllowed()) return problem('Upload was cancelled or write access was revoked.');
+      return result({ image: store.uploadImage(data, declaredType) });
+    });
     register('list_images', 'List editorial media, including private uploads and the number of referencing articles.', z.object({ page: z.number().int().min(1).max(10000).default(1) }), readOnly, ({ page }) => writeAllowed() ? result({ page, ...store.listImages(page) }) : problem('Write access is disabled.'));
     register('get_image', 'Read an uploaded PNG, JPEG or WebP, including unpublished editorial images.', z.object({ id: z.string().regex(mediaId) }), readOnly, ({ id }) => {
       if (!writeAllowed()) return problem('Write access is disabled.');

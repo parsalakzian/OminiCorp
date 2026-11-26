@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 import { CategoryError, categorySchema, defaultCategories, maxCategories } from './categories.mjs';
 import { articleSchema, defaults, normalizeSource, settingsSchema, titleKey } from './schema.mjs';
 import { constantEqual, defaultSystem } from '../installation.mjs';
-import { inspectImage, MediaError, mediaFromPath, mediaPath, mediaQuota } from './media.mjs';
+import { inspectImage, MediaError, mediaFromPath, mediaPath } from './media.mjs';
 import { referencedImages } from './markdown.mjs';
 import { sampleDate, seed } from './seed.mjs';
 
@@ -79,7 +79,6 @@ export function openBlog(path, { seedContent = true } = {}) {
     const references = new Set([...referencedImages(item.fa.body), ...referencedImages(item.en.body)]);
     const coverId = mediaFromPath(item.cover?.src);
     if (coverId) references.add(coverId);
-    if (references.size > 40) throw new MediaError('Use at most 40 uploaded images per article.');
     const published = old?.published || (item.state === 'published' ? now : null);
     const columns = [item.state, item.section, item.fa.slug, item.en.slug,
       titleKey(`${item.fa.title} ${item.fa.excerpt} ${item.fa.tags.join(' ')}`), titleKey(`${item.en.title} ${item.en.excerpt} ${item.en.tags.join(' ')}`),
@@ -153,16 +152,10 @@ export function openBlog(path, { seedContent = true } = {}) {
     published() { return db.prepare("SELECT fa_slug,en_slug,modified FROM articles WHERE state='published'").all(); },
     remove(id) { return Boolean(db.prepare('DELETE FROM articles WHERE id=?').run(id).changes); },
     uploadImage(data, declaredType) {
-      const { id, type, width, height, size } = inspectImage(data, declaredType);
-      const insert = db.prepare(`INSERT INTO media(id,type,width,height,data,created)
-        SELECT ?,?,?,?,?,? WHERE (SELECT COALESCE(SUM(size),0) FROM media) + ? <= ? ON CONFLICT(id) DO NOTHING`);
-      insert.run(id, type, width, height, data, new Date().toISOString(), size, mediaQuota);
+      const { id, type, width, height } = inspectImage(data, declaredType);
+      db.prepare('INSERT INTO media(id,type,width,height,data,created) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING')
+        .run(id, type, width, height, data, new Date().toISOString());
       const row = db.prepare(`SELECT ${mediaColumns} FROM media WHERE id=?`).get(id);
-      if (!row) {
-        const error = new MediaError('Media library is full. Remove unused images before uploading.');
-        error.kind = 'quota';
-        throw error;
-      }
       return mediaInfo(row);
     },
     listImages(page = 1, size = 24) {

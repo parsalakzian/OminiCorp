@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { DatabaseSync } from 'node:sqlite';
 import { once } from 'node:events';
 import test from 'node:test';
@@ -10,6 +11,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { passwordRecord, tokenHash } from '../server/installation.mjs';
 import { createApp } from '../server/app.mjs';
 import { createAutomation, parseFeed } from '../server/blog/automation.mjs';
+import { createImageImporter } from '../server/blog/media-import.mjs';
 import { maxImageBytes, MediaError } from '../server/blog/media.mjs';
 import { renderArticle } from '../server/blog/render.mjs';
 import { createBlog } from '../server/blog/routes.mjs';
@@ -23,12 +25,12 @@ const adminPassword = 'editorial-test-fixture-not-secret';
 const date = Date.parse('2026-11-20T12:00:00Z');
 const clone = () => structuredClone(seed[0]);
 
-async function fixture(t, settings = {}) {
+async function fixture(t, settings = {}, options = {}) {
   const store = openBlog(':memory:');
   store.setSettings({ ...defaults, ...settings });
   store.setSystem({ siteUrl: origin, mcpHash: tokenHash(mcpKey) });
   store.setOwner(await passwordRecord(adminPassword));
-  const blog = createBlog({ store, timer: false });
+  const blog = createBlog({ store, timer: false, ...options });
   const app = createApp({}, { blog });
   app.listen(0, '127.0.0.1');
   await once(app, 'listening');
@@ -469,5 +471,75 @@ test('official MCP category CRUD and article assignment observe the publication 
     store.setSettings({ ...store.getSettings(), mcpWrite: true });
     await call('delete_article', { id: created.structuredContent.article.id });
     assert.equal((await call('delete_category', { slug })).structuredContent.removed, true);
+  } finally { await client.close(); }
+});
+
+
+function imageResponse(statusCode, headers, bytes = []) {
+  return Object.assign(Readable.from(bytes), { statusCode, headers });
+}
+
+test('HTTPS import checks and pins public addresses, blocks private redirects, oversized bodies and cancellation', async () => {
+  const requests = [];
+  const resolve = async (hostname) => hostname === 'private.example' ? [{ address: '192.168.1.1', family: 4 }] : [
+    { address: '2606:4700:4700::1111', family: 6 }, { address: '93.184.216.34', family: 4 },
+  ];
+  const open = async (url, address) => {
+    assert.equal(address.address, '93.184.216.34');
+    requests.push(url.href);
+    if (url.pathname === '/start') return imageResponse(302, { location: 'https://cdn.example/image' });
+    if (url.pathname === '/private') return imageResponse(302, { location: 'https://private.example/image' });
+    if (url.pathname === '/large') return imageResponse(200, { 'content-length': maxImageBytes + 1 });
+    return imageResponse(200, {}, [sampleImage()]);
+  };
+  const importer = createImageImporter({ resolve, open });
+  assert.deepEqual(await importer('https://public.example/start'), sampleImage());
+  assert.deepEqual(requests, ['https://public.example/start', 'https://cdn.example/image']);
+  await assert.rejects(importer('https://public.example/private'), /public addresses/);
+  await assert.rejects(importer('https://public.example/large'), /25 MiB/);
+  for (const url of ['https://127.0.0.1/image', 'https://[::1]/image', 'https://169.254.169.254/image']) await assert.rejects(importer(url), /public addresses/);
+  for (const url of ['http://public.example/image', 'https://public.example:444/image', 'https://a:b@public.example/image']) await assert.rejects(importer(url), /direct public HTTPS/);
+  const mixed = createImageImporter({ resolve: async () => [{ address: '93.184.216.34', family: 4 }, { address: '10.0.0.1', family: 4 }], open });
+  await assert.rejects(mixed('https://mixed.example/image'), /public addresses/);
+  const stalled = createImageImporter({ resolve: () => new Promise(() => {}), open });
+  const controller = new AbortController();
+  const pending = stalled('https://public.example/image', controller.signal);
+  controller.abort();
+  await assert.rejects(pending, /cancelled/);
+  assert.deepEqual(requests.slice(2), ['https://public.example/private', 'https://public.example/large']);
+});
+
+test('MCP upload accepts public links and Base64 variants; binary endpoint handles files above the old cap', async (t) => {
+  const importImage = createImageImporter({ resolve: async () => [{ address: '93.184.216.34', family: 4 }],
+    open: async () => imageResponse(200, {}, [sampleImage()]) });
+  const { store, url } = await fixture(t, { mcp: true }, { importImage });
+  const auth = { Authorization: `Bearer ${mcpKey}` };
+  const raw = (body, headers = auth) => fetch(url + '/mcp/media', { method: 'POST', body, headers: { 'Content-Type': 'application/octet-stream', ...headers } });
+  assert.equal((await raw(sampleImage(), {})).status, 401);
+  assert.equal((await raw(sampleImage())).status, 403);
+  store.setSettings({ ...store.getSettings(), mcpWrite: true });
+  assert.equal((await raw(sampleImage(), { ...auth, Origin: 'https://untrusted.example' })).status, 403);
+  const padding = Buffer.alloc(4 * 1024 * 1024 + 8);
+  padding.write('JUNK');
+  padding.writeUInt32LE(padding.length - 8, 4);
+  const bytes = Buffer.concat([sampleImage(), padding]);
+  bytes.writeUInt32LE(bytes.length - 8, 4);
+  const uploaded = await raw(bytes);
+  assert.equal(uploaded.status, 201);
+  const { image: binary } = await uploaded.json();
+  assert.equal(binary.size, bytes.length);
+  assert.equal((await fetch(url + binary.url)).status, 404);
+  assert.equal((await raw('not an image')).status, 422);
+  const client = new Client({ name: 'alternate-upload-test', version: '1.0.0' });
+  await client.connect(new StreamableHTTPClientTransport(new URL(url + '/mcp'), { requestInit: { headers: auth } }));
+  const tool = (args) => client.callTool({ name: 'upload_image', arguments: args });
+  try {
+    assert.equal((await tool({})).isError, true);
+    assert.equal((await tool({ url: 'https://cdn.example/picture', base64: 'aaaa' })).isError, true);
+    const { image: linked } = (await tool({ url: 'https://cdn.example/picture' })).structuredContent;
+    assert.equal(linked.size, sampleImage().length);
+    const wrapped = sampleImage().toString('base64url').match(/.{1,80}/g).join('\n');
+    assert.equal((await tool({ base64: `data:image/webp;base64,${wrapped}` })).structuredContent.image.id, linked.id);
+    assert.equal((await tool({ base64: bytes.toString('base64') })).structuredContent.image.id, binary.id);
   } finally { await client.close(); }
 });
