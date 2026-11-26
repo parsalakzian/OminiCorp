@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { CategoryError, categorySchema, defaultCategories, maxCategories } from './categories.mjs';
 import { articleSchema, defaults, normalizeSource, settingsSchema, titleKey } from './schema.mjs';
 import { constantEqual, defaultSystem } from '../installation.mjs';
 import { inspectImage, MediaError, mediaFromPath, mediaPath, mediaQuota } from './media.mjs';
@@ -14,7 +15,7 @@ export function openBlog(path, { seedContent = true } = {}) {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA busy_timeout=4000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (![0, 1, 2].includes(version)) { db.close(); throw new Error('Unsupported blog schema version'); }
+  if (![0, 1, 2, 3].includes(version)) { db.close(); throw new Error('Unsupported blog schema version'); }
   if (!version) db.exec(`BEGIN IMMEDIATE;
     CREATE TABLE articles (id INTEGER PRIMARY KEY, state TEXT NOT NULL CHECK(state IN ('draft','published')),
       section TEXT NOT NULL, fa_slug TEXT NOT NULL UNIQUE, en_slug TEXT NOT NULL UNIQUE,
@@ -34,6 +35,28 @@ export function openBlog(path, { seedContent = true } = {}) {
       media_id TEXT NOT NULL REFERENCES media(id) ON DELETE RESTRICT, PRIMARY KEY(article_id, media_id)) STRICT;
     CREATE INDEX article_media_lookup ON article_media(media_id);
     PRAGMA user_version=2; COMMIT;`);
+  if (version < 3) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(`CREATE TABLE categories (slug TEXT PRIMARY KEY, nameFa TEXT NOT NULL, nameEn TEXT NOT NULL,
+        descriptionFa TEXT NOT NULL, descriptionEn TEXT NOT NULL, theme TEXT NOT NULL, position INTEGER NOT NULL) STRICT;
+        CREATE INDEX article_category ON articles(section);
+        CREATE TRIGGER article_category_insert BEFORE INSERT ON articles WHEN NOT EXISTS(SELECT 1 FROM categories WHERE slug=NEW.section)
+          BEGIN SELECT RAISE(ABORT, 'Unknown article category'); END;
+        CREATE TRIGGER article_category_update BEFORE UPDATE OF section ON articles WHEN NOT EXISTS(SELECT 1 FROM categories WHERE slug=NEW.section)
+          BEGIN SELECT RAISE(ABORT, 'Unknown article category'); END;
+        CREATE TRIGGER category_in_use BEFORE DELETE ON categories WHEN EXISTS(SELECT 1 FROM articles WHERE section=OLD.slug)
+          BEGIN SELECT RAISE(ABORT, 'Category in use'); END;`);
+      const addDefault = db.prepare('INSERT INTO categories VALUES(?,?,?,?,?,?,?)');
+      for (const { slug, nameFa, nameEn, descriptionFa, descriptionEn, theme, position } of defaultCategories) {
+        addDefault.run(slug, nameFa, nameEn, descriptionFa, descriptionEn, theme, position);
+      }
+      db.exec('PRAGMA user_version=3; COMMIT;');
+    } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
+  }
+  const findCategory = (slug) => db.prepare('SELECT * FROM categories WHERE slug=?').get(slug);
+  const categories = (admin = false) => db.prepare(`SELECT categories.*, (SELECT count(*) FROM articles
+    WHERE section=categories.slug AND (?=1 OR state='published')) AS count FROM categories ORDER BY position, slug`).all(Number(admin));
   const mediaColumns = 'id, type, width, height, size, created';
   const mediaInfo = (row) => ({ ...row, url: mediaPath(row.id) });
   const mediaExists = db.prepare('SELECT 1 FROM media WHERE id=?');
@@ -63,6 +86,7 @@ export function openBlog(path, { seedContent = true } = {}) {
       JSON.stringify(item), published, now];
     db.exec('BEGIN IMMEDIATE');
     try {
+      if (!findCategory(item.section)) throw new CategoryError('Article category does not exist.');
       for (const imageId of references) if (!mediaExists.get(imageId)) throw new MediaError('Article refers to an image that is not in the media library.');
       if (id) {
         db.prepare('UPDATE articles SET state=?,section=?,fa_slug=?,en_slug=?,fa_search=?,en_search=?,payload=?,published=?,modified=? WHERE id=?').run(...columns, id);
@@ -91,7 +115,31 @@ export function openBlog(path, { seedContent = true } = {}) {
   }
 
   return {
-    find, save,
+    find, save, categories, findCategory,
+    saveCategory(input, slug) {
+      const value = categorySchema.parse(input);
+      if (slug && slug !== value.slug) throw new CategoryError('A category slug cannot be changed.');
+      const fields = [value.nameFa, value.nameEn, value.descriptionFa, value.descriptionEn, value.theme, value.position];
+      if (slug) {
+        if (!db.prepare('UPDATE categories SET nameFa=?, nameEn=?, descriptionFa=?, descriptionEn=?, theme=?, position=? WHERE slug=?').run(...fields, slug).changes) return null;
+      } else {
+        if (findCategory(value.slug)) throw new CategoryError('This category slug already exists.');
+        const inserted = db.prepare('INSERT INTO categories SELECT ?,?,?,?,?,?,? WHERE (SELECT count(*) FROM categories) < ? ON CONFLICT(slug) DO NOTHING').run(value.slug, ...fields, maxCategories).changes;
+        if (!inserted) throw new CategoryError('Category limit reached or slug already exists.');
+      }
+      return findCategory(value.slug);
+    },
+    removeCategory(slug) {
+      if (!findCategory(slug)) return false;
+      try {
+        const deleted = db.prepare('DELETE FROM categories WHERE slug=? AND (SELECT count(*) FROM categories)>1').run(slug).changes;
+        if (!deleted) throw new CategoryError('Keep at least one category.');
+        return true;
+      } catch (error) {
+        if (error.errcode === 1811) throw new CategoryError('Move articles to another category before deleting this one.');
+        throw error;
+      }
+    },
     list({ lang = 'fa', query = '', section = '', page = 1, size = 9, admin = false, state = '', bilingual = false } = {}) {
       const langField = lang === 'en' ? 'en_search' : 'fa_search';
       const filter = `WHERE (? OR state='published') AND (?='' OR state=?) AND (?='' OR section=?) AND (?='' OR instr(${langField},?)>0 OR (? AND instr(en_search,?)>0))`;

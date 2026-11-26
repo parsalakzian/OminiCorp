@@ -1,9 +1,9 @@
 import { z } from 'zod';
+import { categorySlug } from './categories.mjs';
 import { mediaFromPath } from './media.mjs';
 import { parseOrigin } from '../installation.mjs';
 
 export const languages = ['fa', 'en'];
-export const sections = ['engineering', 'security', 'ai', 'design'];
 const words = (limit, min = 1) => z.string().trim().min(min).max(limit);
 export const slug = z.string().min(2).max(100).regex(/^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u);
 export function webUrl(value) {
@@ -22,7 +22,7 @@ export const coverSchema = z.object({
   altFa: z.string().trim().max(180).default(''), altEn: z.string().trim().max(180).default(''),
 });
 export const articleSchema = z.object({
-  section: z.enum(sections), author: words(80), state: z.enum(['draft', 'published']),
+  section: categorySlug, author: words(80), state: z.enum(['draft', 'published']),
   cover: coverSchema.nullable().optional(),
   sources: z.array(source).max(10), fa: translation, en: translation,
 });

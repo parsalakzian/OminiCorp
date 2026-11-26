@@ -1,11 +1,12 @@
 import { checkPassword, constantEqual as equal, digest, makeKey as random, parseOrigin, passwordRecord, tokenHash, updateAiSecrets, updateSystem, validPassword } from '../installation.mjs';
 import { ZodError } from 'zod';
-import { aiSettingsPage, confirmDelete, dashboard, editor, login, mediaLibrary, mcpSettingsPage, setupPage, systemPage } from './admin.mjs';
+import { aiSettingsPage, categoriesPage, categoryEditor, confirmCategoryDelete, confirmDelete, dashboard, editor, login, mediaLibrary, mcpSettingsPage, setupPage, systemPage } from './admin.mjs';
+import { CategoryError, categorySchema, categorySlug } from './categories.mjs';
 import { createAutomation } from './automation.mjs';
 import { createMcpHttp } from './mcp-http.mjs';
 import { maxImageBytes, MediaError, mediaFromPath, sendImage } from './media.mjs';
-import { renderArticle, renderList, renderMissing, sitemap } from './render.mjs';
-import { sections, slug } from './schema.mjs';
+import { listUrl, renderArticle, renderList, renderMissing, sitemap } from './render.mjs';
+import { slug } from './schema.mjs';
 import { BlogConflict, openBlog } from './store.mjs';
 
 const pageNumber = (value) => Math.max(1, Math.min(10000, Math.floor(Number(value) || 1)));
@@ -47,8 +48,8 @@ function aiSettingsData(params, stored) {
     proxyUrl: (params.get('proxyUrl') || '').trim(), interval: Number(params.get('interval')), batch: Number(params.get('batch')) };
 }
 
-const notices = { imageUploaded: 'تصویر بارگذاری شد.', imageRemoved: 'تصویر حذف شد.', saved: 'مقاله ذخیره شد.', removed: 'مقاله حذف شد.', waiting: 'تولید در حال انجام است؛ چند دقیقه بعد وضعیت را بررسی کنید.', disabled: 'تولید در تنظیمات خاموش است.', settings: 'تنظیمات ذخیره شد.', password: 'رمز تغییر کرد. دوباره وارد شوید.', revoked: 'توکن لغو شد؛ اتصال با آن دیگر ممکن نیست.' };
-const errorText = (error) => error instanceof MediaError ? 'مسیر تصاویر را بررسی کنید. فقط تصویرهای موجود در کتابخانه و حداکثر ۴۰ تصویر در هر مقاله مجازند.' : error.kind === 'slug-locked' ? 'نامک هر دو زبان پس از اولین انتشار ثابت است.' : error instanceof BlogConflict ? 'این نامک یا منبع قبلاً در مقالهٔ دیگری ثبت شده است.' : error instanceof ZodError ? `این ورودی‌ها را بررسی کنید: ${[...new Set(error.issues.map((entry) => entry.path.join('.')))].slice(0,12).join('، ')}` : 'ذخیره‌سازی انجام نشد.';
+const notices = { categorySaved: 'دسته ذخیره شد.', categoryRemoved: 'دسته حذف شد.', imageUploaded: 'تصویر بارگذاری شد.', imageRemoved: 'تصویر حذف شد.', saved: 'مقاله ذخیره شد.', removed: 'مقاله حذف شد.', waiting: 'تولید در حال انجام است؛ چند دقیقه بعد وضعیت را بررسی کنید.', disabled: 'تولید در تنظیمات خاموش است.', settings: 'تنظیمات ذخیره شد.', password: 'رمز تغییر کرد. دوباره وارد شوید.', revoked: 'توکن لغو شد؛ اتصال با آن دیگر ممکن نیست.' };
+const errorText = (error) => error instanceof CategoryError ? 'دستهٔ مقاله را از فهرست فعلی انتخاب کنید.' : error instanceof MediaError ? 'مسیر تصاویر را بررسی کنید. فقط تصویرهای موجود در کتابخانه و حداکثر ۴۰ تصویر در هر مقاله مجازند.' : error.kind === 'slug-locked' ? 'نامک هر دو زبان پس از اولین انتشار ثابت است.' : error instanceof BlogConflict ? 'این نامک یا منبع قبلاً در مقالهٔ دیگری ثبت شده است.' : error instanceof ZodError ? `این ورودی‌ها را بررسی کنید: ${[...new Set(error.issues.map((entry) => entry.path.join('.')))].slice(0,12).join('، ')}` : 'ذخیره‌سازی انجام نشد.';
 
 export function createBlog(options = {}) {
   const store = options.store || openBlog('data/blog.sqlite');
@@ -144,6 +145,10 @@ export function createBlog(options = {}) {
     const note = url.searchParams.get('notice');
     const issue = Object.hasOwn(notices, note) ? notices[note] : undefined;
     const status = store.getSettings();
+    const categoryMatch = path.match(/^\/admin\/categories\/edit\/([a-z0-9-]{2,48})(\/delete)?$/);
+    const categoryKey = categoryMatch?.[1];
+    const category = categoryKey && store.findCategory(categoryKey);
+    if (categoryKey && !category) return res.writeHead(404).end();
     const mediaMatch = path.match(/^\/admin\/media\/([a-f0-9]{64})(\/delete)?$/);
     const library = (page, code = 200, error) => html(req, res, code, mediaLibrary({ origin, csrf, ...store.listImages(page), page, notice: issue, error }));
     if (path === '/admin/media' && method === 'POST') {
@@ -167,20 +172,24 @@ export function createBlog(options = {}) {
     const item = id && store.find(id);
     if (id && !item) return res.writeHead(404).end();
     if (method === 'GET' || method === 'HEAD') {
+      if (path === '/admin/categories') return html(req, res, 200, categoriesPage({ origin, csrf, categories: store.categories(true), notice: issue }));
+      if (categoryMatch?.[2]) return html(req, res, 200, confirmCategoryDelete({ origin, csrf, entry: category }));
+      if (category || path === '/admin/categories/new') return html(req, res, 200, categoryEditor({ origin, csrf, entry: category || undefined, slug: categoryKey }));
       if (path === '/admin/media') return library(pageNumber(url.searchParams.get('page')));
       if (path === '/admin') {
         const page = pageNumber(url.searchParams.get('page'));
         const query = (url.searchParams.get('q') || '').trim().slice(0, 100);
         const state = ['draft', 'published'].includes(url.searchParams.get('state')) ? url.searchParams.get('state') : '';
-        const section = sections.includes(url.searchParams.get('section')) ? url.searchParams.get('section') : '';
-        return html(req, res, 200, dashboard({ origin, csrf, ...store.list({ admin: true, page, size: 20, query, state, section, bilingual: true }), query, state, section, articleCount: store.list({ admin: true, size: 1 }).total, published: store.list({ size: 1 }).total, run: store.getRun(), settings: status, notice: issue, page }));
+        const categories = store.categories(true);
+        const section = categories.find(({ slug }) => slug === url.searchParams.get('section'))?.slug || '';
+        return html(req, res, 200, dashboard({ origin, csrf, ...store.list({ admin: true, page, size: 20, query, state, section, bilingual: true }), query, state, section, categories, articleCount: store.list({ admin: true, size: 1 }).total, published: store.list({ size: 1 }).total, run: store.getRun(), settings: status, notice: issue, page }));
       }
       const preview = path.match(/^\/admin\/articles\/([1-9]\d{0,8})\/preview\/(fa|en)$/);
       if (preview) {
         const draft = store.find(Number(preview[1]));
         if (!draft) return res.writeHead(404).end();
         if (draft.cover?.src.startsWith('https://')) allowExternalCovers(res);
-        return html(req, res, 200, renderArticle(preview[2], origin, { ...draft, published: draft.published || draft.modified }, [], true));
+        return html(req, res, 200, renderArticle(preview[2], origin, { ...draft, published: draft.published || draft.modified }, [], true, store.findCategory(draft.section)));
       }
       if (path === '/admin/run') return res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(method === 'HEAD' ? undefined : JSON.stringify({ ...store.getRun(), pending: Boolean(pending) }));
       if (path === '/admin/settings') return redirect(res, '/admin/system');
@@ -193,7 +202,7 @@ export function createBlog(options = {}) {
         return html(req, res, 200, mcpSettingsPage({ origin, csrf, system, settings: status, notice: issue, token }));
       }
       if (match?.[2] && item) return html(req, res, 200, confirmDelete({ origin, csrf, item }));
-      if (match && !match[2]) { allowExternalCovers(res); return html(req, res, 200, editor({ origin, csrf, item: item || undefined, id })); }
+      if (match && !match[2]) { allowExternalCovers(res); return html(req, res, 200, editor({ origin, csrf, item: item || undefined, id, categories: store.categories() })); }
       return res.writeHead(404).end();
     }
     if (method !== 'POST') return res.writeHead(405).end();
@@ -202,6 +211,26 @@ export function createBlog(options = {}) {
     if (raw === null) return res.writeHead(413).end();
     const params = new URLSearchParams(raw);
     if (!equal(params.get('csrf'), csrf)) return res.writeHead(403).end();
+    if (categoryMatch?.[2]) {
+      try { if (!store.removeCategory(categoryKey)) return res.writeHead(404).end(); }
+      catch (error) {
+        if (!(error instanceof CategoryError)) throw error;
+        return html(req, res, 409, confirmCategoryDelete({ origin, csrf, entry: category, error: 'ابتدا مقاله‌ها را به دستهٔ دیگری منتقل کنید؛ دست‌کم یک دسته باید باقی بماند.' }));
+      }
+      return redirect(res, '/admin/categories?notice=categoryRemoved');
+    }
+    if (category || path === '/admin/categories/new') {
+      const input = Object.fromEntries(['slug', 'nameFa', 'nameEn', 'descriptionFa', 'descriptionEn', 'theme'].map((key) => [key, params.get(key) || '']));
+      input.position = params.get('position')?.trim() ? Number(params.get('position')) : 100;
+      const candidate = categorySchema.safeParse(input);
+      if (!candidate.success) return html(req, res, 422, categoryEditor({ origin, csrf, slug: categoryKey, entry: input, error: 'نام هر دو زبان، نامک و ترتیب معتبر را وارد کنید.' }));
+      try { if (!store.saveCategory(candidate.data, categoryKey)) return res.writeHead(404).end(); }
+      catch (error) {
+        if (!(error instanceof CategoryError)) throw error;
+        return html(req, res, 409, categoryEditor({ origin, csrf, slug: categoryKey, entry: { ...input, slug: categoryKey || input.slug }, error: 'نامک تکراری یا تغییرناپذیر است، یا سقف تعداد دسته‌ها پر شده است.' }));
+      }
+      return redirect(res, '/admin/categories?notice=categorySaved');
+    }
     if (path === '/admin/logout') { sessions.delete(token); setCookie(res, '', 0, origin); return redirect(res, '/admin/login'); }
     if (path === '/admin/system') {
       const settings = { ...store.getSettings(), enabled: params.get('enabled') === 'on' };
@@ -263,45 +292,48 @@ export function createBlog(options = {}) {
     if (match[2]) { if (!id) return res.writeHead(404).end(); store.remove(id); return redirect(res, `${home}?notice=removed`); }
     const value = postData(params);
     try { store.save(value, id); return redirect(res, `${home}?notice=saved`); }
-    catch (error) { allowExternalCovers(res); return html(req, res, error instanceof BlogConflict ? 409 : 422, editor({ origin, csrf, item: { ...value, published: item?.published, cover: value.cover === undefined ? item?.cover : value.cover }, id, error: errorText(error) })); }
+    catch (error) { allowExternalCovers(res); return html(req, res, error instanceof BlogConflict ? 409 : 422, editor({ origin, csrf, item: { ...value, published: item?.published, cover: value.cover === undefined ? item?.cover : value.cover }, id, categories: store.categories(), error: errorText(error) })); }
   }
 
   async function route(req, res, url) {
     const path = url.pathname;
-    if (path === '/admin/' || path === '/blog/' || path === '/en/blog/') return redirect(res, path.slice(0, -1), 308);
+    if (path === '/admin/' || /^\/(?:en\/)?blog(?:\/category\/[a-z0-9-]+)?\/$/.test(path)) return redirect(res, path.slice(0, -1) + url.search, 308);
     if (path === '/mcp' || path === '/mcp/') return mcp(req, res);
     const media = mediaFromPath(path);
     if (media) return sendImage(req, res, ['GET', 'HEAD'].includes(req.method) && store.getSettings().enabled ? store.getImage(media, true) : undefined);
     if (path === '/admin' || path.startsWith('/admin/')) return admin(req, res, url);
-    const blog = path.match(/^\/(en\/)?blog(?:\/([^/]+))?$/);
+    const blog = path.match(/^\/(en\/)?blog(?:\/category\/([^/]+)|\/([^/]+))?$/);
     if (!blog && !['/robots.txt', '/sitemap.xml'].includes(path)) return false;
     const origin = store.getSystem().siteUrl;
     if (!['GET', 'HEAD'].includes(req.method)) return res.writeHead(405, { Allow: 'GET, HEAD' }).end();
     res.setHeader('Cache-Control', 'public, max-age=60');
     if (path === '/robots.txt') return res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }).end(`User-agent: *\nDisallow: /admin\nDisallow: /mcp\nSitemap: ${origin}/sitemap.xml\n`);
     const enabled = store.getSettings().enabled;
-    if (path === '/sitemap.xml') return res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }).end(sitemap(origin, enabled ? store.published() : [], enabled));
+    if (path === '/sitemap.xml') return res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }).end(sitemap(origin, enabled ? store.published() : [], enabled, enabled ? store.categories() : []));
     const lang = blog[1] ? 'en' : 'fa';
     if (!enabled) return html(req, res, 404, renderMissing(lang, origin));
-    if (blog[2]) {
+    if (blog[3]) {
       let name;
-      try { name = decodeURIComponent(blog[2]); } catch { return html(req, res, 404, renderMissing(lang, origin)); }
+      try { name = decodeURIComponent(blog[3]); } catch { return html(req, res, 404, renderMissing(lang, origin)); }
       const item = slug.safeParse(name).success && store.lookup(lang, name);
       if (!item) return html(req, res, 404, renderMissing(lang, origin));
       const same = store.list({ lang, section: item.section, size: 4 }).items.filter((other) => other.id !== item.id);
       const more = store.list({ lang, size: 4 }).items.filter((other) => other.id !== item.id && !same.some((entry) => entry.id === other.id));
       if (item.cover?.src.startsWith('https://')) allowExternalCovers(res);
-      return html(req, res, 200, renderArticle(lang, origin, item, [...same, ...more].slice(0, 3)));
+      return html(req, res, 200, renderArticle(lang, origin, item, [...same, ...more].slice(0, 3), false, store.findCategory(item.section)));
     }
     const page = pageNumber(url.searchParams.get('page'));
     const query = (url.searchParams.get('q') || '').trim().slice(0,100);
-    const rawSection = url.searchParams.get('section');
-    const section = sections.includes(rawSection) ? rawSection : '';
-    const size = 9;
+    const categories = store.categories();
+    const rawSection = blog[2] || url.searchParams.get('section') || '';
+    if (rawSection && (!categorySlug.safeParse(rawSection).success || !categories.some(({ slug }) => slug === rawSection))) return html(req, res, 404, renderMissing(lang, origin));
+    if (!blog[2] && rawSection) return redirect(res, listUrl(lang, page, rawSection, query), 308);
+    const section = rawSection;
+    const size = 6;
     const result = store.list({ lang, page, query, section, size });
     if (page > 1 && !result.items.length) return html(req, res, 404, renderMissing(lang, origin));
     if (result.items.some((item) => item.cover?.src.startsWith('https://'))) allowExternalCovers(res);
-    return html(req, res, 200, renderList(lang, origin, { ...result, page, section, query, size }));
+    return html(req, res, 200, renderList(lang, origin, { ...result, page, section, query, size, categories }));
   }
   return { route, store, async close() { clearInterval(clock); await automation.close?.(); await pending; store.close(); } };
 }
