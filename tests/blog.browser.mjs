@@ -245,5 +245,6 @@ test('direct MCP navigation renders connection instructions rather than a token 
   expect(response.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'راهنمای اتصال MCP' })).toBeVisible();
   await expect(page.getByText('Streamable HTTP', { exact: true })).toBeVisible();
+  await expect(page.getByText('JSON-RPC 2.0 · SSE / JSON', { exact: true })).toBeVisible();
   await responsive(page);
 });

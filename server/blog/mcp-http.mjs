@@ -8,9 +8,29 @@ const corsHeaders = ['Authorization', 'Content-Type', 'MCP-Protocol-Version', 'M
 const allowedHeaders = new Set(corsHeaders.map((name) => name.toLowerCase()));
 const jsonError = (res, status, error) => res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error }));
 
+function responseType(accept = '') {
+  const qualities = new Map();
+  for (const value of accept.split(',')) {
+    const [media, ...params] = value.trim().split(';');
+    const type = media.trim().toLowerCase();
+    if (type !== 'application/json' && type !== 'text/event-stream') continue;
+    const quality = params.map((param) => param.trim()).find((param) => /^q\s*=/i.test(param));
+    const weight = quality ? Number(quality.slice(quality.indexOf('=') + 1)) : 1;
+    if (Number.isFinite(weight) && weight >= 0 && weight <= 1) qualities.set(type, Math.max(qualities.get(type) || 0, weight));
+  }
+  const json = qualities.get('application/json');
+  const stream = qualities.get('text/event-stream');
+  // Streamable HTTP clients advertise both; choose SSE on equal preference.
+  if (!json || !stream) return undefined;
+  return json > stream ? 'json' : 'sse';
+}
+
+const rpcError = (res, status, code, message) => res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
+  .end(JSON.stringify({ jsonrpc: '2.0', error: { code, message }, id: null }));
+
 function guide(origin) {
   const endpoint = escape(`${origin}/mcp`);
-  return documentPage({ lang: 'fa', origin, title: 'راهنمای اتصال MCP | اومینی‌کورپ', noindex: true, body: `<main class="desk-login"><section class="desk-card"><p class="journal-kicker" dir="ltr">OMINI / CONNECTION GUIDE</p><h1>راهنمای اتصال MCP</h1><p>بازکردن این نشانی در مرورگر، اتصال یا اعتبار توکن را بررسی نمی‌کند. اتصال را در کلاینت MCP انجام دهید.</p><dl><dt>نشانی سرور</dt><dd class="desk-endpoint" dir="ltr"><code>${endpoint}</code></dd><dt>نوع اتصال</dt><dd dir="ltr">Streamable HTTP</dd><dt>احراز هویت</dt><dd class="desk-endpoint" dir="ltr"><code>Authorization: Bearer &lt;token&gt;</code></dd></dl><p>توکن را در نشانی وارد نکنید. کلاینت باید بتواند هدر احراز هویت سفارشی بفرستد.</p><p>برای تصویر از ابزار <code>upload_image</code> با لینک HTTPS یا مسیر باینری <code>POST /mcp/media</code> با همان توکن و مجوز نوشتن استفاده کنید.</p><a class="read-link" href="/admin/system/mcp">تنظیمات و راهنمای مدیر ↗</a></section></main>` });
+  return documentPage({ lang: 'fa', origin, title: 'راهنمای اتصال MCP | اومینی‌کورپ', noindex: true, body: `<main class="desk-login"><section class="desk-card"><p class="journal-kicker" dir="ltr">OMINI / CONNECTION GUIDE</p><h1>راهنمای اتصال MCP</h1><p>بازکردن این نشانی در مرورگر، اتصال یا اعتبار توکن را بررسی نمی‌کند. اتصال را در کلاینت MCP انجام دهید.</p><dl><dt>نشانی سرور</dt><dd class="desk-endpoint" dir="ltr"><code>${endpoint}</code></dd><dt>نوع اتصال</dt><dd dir="ltr">Streamable HTTP</dd><dt>پروتکل پیام</dt><dd dir="ltr">JSON-RPC 2.0 · SSE / JSON</dd><dt>احراز هویت</dt><dd class="desk-endpoint" dir="ltr"><code>Authorization: Bearer &lt;token&gt;</code></dd></dl><p>توکن را در نشانی وارد نکنید. کلاینت باید بتواند هدر احراز هویت سفارشی بفرستد.</p><p>برای تصویر از ابزار <code>upload_image</code> با لینک HTTPS یا مسیر باینری <code>POST /mcp/media</code> با همان توکن و مجوز نوشتن استفاده کنید.</p><a class="read-link" href="/admin/system/mcp">تنظیمات و راهنمای مدیر ↗</a></section></main>` });
 }
 
 export function createMcpHttp({ store, automation, readBytes, importImage }) {
@@ -50,7 +70,7 @@ export function createMcpHttp({ store, automation, readBytes, importImage }) {
     }
     if (req.method !== 'POST') {
       res.setHeader('Allow', methods);
-      return jsonError(res, 405, binary ? 'Use POST with the raw file as the body.' : 'Use Streamable HTTP POST. A standalone or legacy SSE stream is not provided.');
+      return jsonError(res, 405, binary ? 'Use POST with the raw file as the body.' : 'Use Streamable HTTP POST on /mcp. SSE is returned on POST; legacy and standalone GET streams are not provided.');
     }
     const stillAuthenticated = () => store.getSettings().mcp && constantEqual(tokenHash(bearer), store.getSystem().mcpHash);
     const canWrite = () => stillAuthenticated() && store.getSettings().mcpWrite;
@@ -59,6 +79,8 @@ export function createMcpHttp({ store, automation, readBytes, importImage }) {
     if (binary ? !imageContentTypes.includes(type) : type !== 'application/json') {
       return jsonError(res, 415, binary ? 'Send a raw PNG, JPEG or WebP file, with its image content type or application/octet-stream. Do not use multipart.' : 'Send Content-Type: application/json.');
     }
+    const mode = binary ? undefined : responseType(req.headers.accept);
+    if (!binary && !mode) return rpcError(res, 406, -32000, 'Send Accept: application/json, text/event-stream.');
     const now = Date.now();
     if (now >= windowEnd) { windowEnd = now + 60000; count = 0; }
     if (++count > 120 || (settings.mcpWrite && activeWrites >= 3)) {
@@ -85,8 +107,8 @@ export function createMcpHttp({ store, automation, readBytes, importImage }) {
         }
       }
       let body;
-      try { body = JSON.parse(raw.toString('utf8')); } catch { return jsonError(res, 400, 'Invalid JSON request.'); }
-      await handleMcp(req, res, body, { store, automation, importImage, canWrite, signal: client.signal });
+      try { body = JSON.parse(raw.toString('utf8')); } catch { return rpcError(res, 400, -32700, 'Parse error: Invalid JSON'); }
+      await handleMcp(req, res, body, { store, automation, importImage, canWrite, signal: client.signal, mode });
     } finally {
       res.off('close', onClose);
       if (settings.mcpWrite) activeWrites--;

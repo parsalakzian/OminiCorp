@@ -6,6 +6,7 @@ import { Readable } from 'node:stream';
 import { DatabaseSync } from 'node:sqlite';
 import { once } from 'node:events';
 import test from 'node:test';
+import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { passwordRecord, tokenHash } from '../server/installation.mjs';
@@ -268,8 +269,8 @@ test('MCP browser guide is public while CORS, proxy-friendly alias and the proto
   assert.equal(credentialsMissing.status, 401);
   assert.match((await credentialsMissing.json()).error, /reverse proxy/);
   const auth = { Origin: inspector, Authorization: `Bearer ${mcpKey}` };
-  const unsupportedSse = await fetch(endpoint, { headers: { ...auth, Accept: 'text/event-stream' } });
-  assert.equal(unsupportedSse.status, 405);
+  const standaloneSse = await fetch(endpoint, { headers: { ...auth, Accept: 'text/event-stream' } });
+  assert.equal(standaloneSse.status, 405);
   const client = new Client({ name: 'inspector-test', version: '1.0.0' });
   await client.connect(new StreamableHTTPClientTransport(new URL(endpoint), { requestInit: { headers: auth } }));
   try { assert.ok((await client.listTools()).tools.some(({ name }) => name === 'list_articles')); }
@@ -542,4 +543,74 @@ test('MCP upload accepts public links and Base64 variants; binary endpoint handl
     assert.equal((await tool({ base64: `data:image/webp;base64,${wrapped}` })).structuredContent.image.id, linked.id);
     assert.equal((await tool({ base64: bytes.toString('base64') })).structuredContent.image.id, binary.id);
   } finally { await client.close(); }
+});
+
+
+test('modern Streamable HTTP negotiates the SDK protocol, sends JSON-RPC over SSE, and preserves direct JSON', async (t) => {
+  const { url } = await fixture(t, { mcp: true });
+  const endpoint = `${url}/mcp`;
+  const frame = (id, method, params) => JSON.stringify({ jsonrpc: '2.0', id, method, params });
+  const auth = { Authorization: `Bearer ${mcpKey}`, 'Content-Type': 'application/json' };
+  const both = 'application/json, text/event-stream';
+  const direct = 'application/json, text/event-stream;q=0.5';
+  const post = (body, accept = both, extra = {}) => fetch(endpoint, { method: 'POST', headers: { ...auth, Accept: accept, ...extra }, body });
+  const init = (version) => frame(7, 'initialize', { protocolVersion: version, capabilities: {}, clientInfo: { name: 'transport-test', version: '1' } });
+  const stream = await post(init(LATEST_PROTOCOL_VERSION));
+  assert.equal(stream.status, 200);
+  assert.match(stream.headers.get('content-type'), /^text\/event-stream/);
+  assert.equal(stream.headers.get('x-accel-buffering'), 'no');
+  assert.equal(stream.headers.get('mcp-session-id'), null);
+  const sse = await stream.text();
+  assert.match(sse, /event: message/);
+  const message = JSON.parse(sse.match(/^data: (.+)$/m)[1]);
+  assert.equal(message.id, 7);
+  assert.equal(message.jsonrpc, '2.0');
+  assert.equal(message.result.protocolVersion, LATEST_PROTOCOL_VERSION);
+  const json = await post(init('2025-06-18'), direct);
+  assert.match(json.headers.get('content-type'), /^application\/json/);
+  assert.equal((await json.json()).result.protocolVersion, '2025-06-18');
+  const initialized = await post(frame(undefined, 'notifications/initialized'));
+  assert.equal(initialized.status, 202);
+  assert.equal(await initialized.text(), '');
+  const bad = await post('{', direct);
+  assert.equal(bad.status, 400);
+  assert.deepEqual(await bad.json(), { jsonrpc: '2.0', error: { code: -32700, message: 'Parse error: Invalid JSON' }, id: null });
+  assert.equal((await post(init(LATEST_PROTOCOL_VERSION), 'application/json')).status, 406);
+  assert.equal((await post(init(LATEST_PROTOCOL_VERSION), 'application/json, text/event-stream;q=0')).status, 406);
+  assert.equal((await post(frame(3, 'ping'), direct, { 'MCP-Protocol-Version': '1999-12-31' })).status, 400);
+});
+
+test('an SSE tool call reports progress before a pending image download finishes', async (t) => {
+  let resolveImage;
+  const image = new Promise((resolve) => { resolveImage = resolve; });
+  const { url } = await fixture(t, { mcp: true, mcpWrite: true }, { importImage: () => image });
+  const reply = await fetch(`${url}/mcp`, { method: 'POST', signal: AbortSignal.timeout(4000),
+    headers: { Authorization: `Bearer ${mcpKey}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 'upload', method: 'tools/call', params: { name: 'upload_image', arguments: { url: 'https://example.com/file' }, _meta: { progressToken: 'asset' } } }),
+  });
+  const reader = reply.body.getReader();
+  try {
+    assert.equal(reply.status, 200);
+    assert.match(reply.headers.get('content-type'), /^text\/event-stream/);
+    const decoder = new TextDecoder();
+    let first = '';
+    while (!first.includes('\n\n')) {
+      const { done, value } = await reader.read();
+      assert.equal(done, false, 'stream ended before progress');
+      first += decoder.decode(value, { stream: true });
+    }
+    assert.match(first, /"method":"notifications\/progress"/);
+    assert.match(first, /"progressToken":"asset"/);
+    assert.doesNotMatch(first, /"id":"upload"/);
+    resolveImage(sampleImage());
+    let rest = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      rest += decoder.decode(value, { stream: true });
+    }
+    assert.match(rest, /Image saved/);
+    assert.match(rest, /"id":"upload"/);
+    assert.match(rest, /"structuredContent":\{"image":/);
+  } finally { resolveImage(sampleImage()); await reader.cancel().catch(() => {}); }
 });

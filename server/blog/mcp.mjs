@@ -11,12 +11,12 @@ const problem = (error) => result({ error }, true);
 const id = z.number().int().positive();
 const readOnly = { readOnlyHint: true, openWorldHint: false };
 
-export async function handleMcp(req, res, body, { store, automation, importImage, canWrite, signal }) {
+export async function handleMcp(req, res, body, { store, automation, importImage, canWrite, signal, mode }) {
   const settings = store.getSettings();
   const mcp = new McpServer({ name: 'ominicorp-journal', version: '1.0.0' });
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-  const register = (name, description, inputSchema, annotations, handler) => mcp.registerTool(name, { description, inputSchema, annotations }, async (data) => {
-    try { return await handler(data); }
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: mode === 'json' });
+  const register = (name, description, inputSchema, annotations, handler) => mcp.registerTool(name, { description, inputSchema, annotations }, async (data, extra) => {
+    try { return await handler(data, extra); }
     catch (error) { return problem(error instanceof BlogConflict || error instanceof MediaError || error instanceof CategoryError ? error.message : 'Editorial operation failed.'); }
   });
   function writeAllowed() { const state = store.getSettings(); return state.mcp && state.mcpWrite && canWrite(); }
@@ -31,12 +31,20 @@ export async function handleMcp(req, res, body, { store, automation, importImage
   });
   register('list_categories', 'List bilingual journal categories in display order, with article counts. Drafts count only with write access.', z.object({}), readOnly, () => result({ categories: store.categories(writeAllowed()) }));
   if (settings.mcpWrite) {
-    register('upload_image', `Save a PNG, JPEG or WebP (up to ${maxImageMiB} MiB). If you have a direct public HTTPS image link, pass url only; the server downloads the original. If you have file bytes, pass base64 only. For local files that the MCP client cannot encode or send, use authenticated POST /mcp/media with the raw file body. Use returned image.url as cover.src or as ![alt](url) in article text.`, z.object({ url: z.string().trim().url().max(4096).optional(), base64: z.string().min(4).max(maxImageInput).optional() }), { destructiveHint: false, openWorldHint: true }, async ({ base64, url }) => {
+    register('upload_image', `Save a PNG, JPEG or WebP (up to ${maxImageMiB} MiB). If you have a direct public HTTPS image link, pass url only; the server downloads the original. If you have file bytes, pass base64 only. For local files that the MCP client cannot encode or send, use authenticated POST /mcp/media with the raw file body. Use returned image.url as cover.src or as ![alt](url) in article text.`, z.object({ url: z.string().trim().url().max(4096).optional(), base64: z.string().min(4).max(maxImageInput).optional() }), { destructiveHint: false, openWorldHint: true }, async ({ base64, url }, extra) => {
       if (!writeAllowed()) return problem('Write access is disabled.');
       if (Boolean(url) === Boolean(base64)) return problem('Send exactly one input: url for a direct public HTTPS image, or base64 for file bytes.');
+      const progressToken = extra._meta?.progressToken;
+      const progress = async (amount, message) => {
+        if (!url || mode !== 'sse' || progressToken === undefined || signal.aborted) return;
+        await extra.sendNotification({ method: 'notifications/progress', params: { progressToken, progress: amount, total: 2, message } }).catch(() => {});
+      };
+      await progress(0, 'Downloading the source image');
       const { data, declaredType } = url ? { data: await importImage(url, signal) } : decodeImage(base64);
       if (signal.aborted || !writeAllowed()) return problem('Upload was cancelled or write access was revoked.');
-      return result({ image: store.uploadImage(data, declaredType) });
+      const image = store.uploadImage(data, declaredType);
+      await progress(2, 'Image saved');
+      return result({ image });
     });
     register('list_images', 'List editorial media, including private uploads and the number of referencing articles.', z.object({ page: z.number().int().min(1).max(10000).default(1) }), readOnly, ({ page }) => writeAllowed() ? result({ page, ...store.listImages(page) }) : problem('Write access is disabled.'));
     register('get_image', 'Read an uploaded PNG, JPEG or WebP, including unpublished editorial images.', z.object({ id: z.string().regex(mediaId) }), readOnly, ({ id }) => {
