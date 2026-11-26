@@ -130,13 +130,16 @@ test('RSS/Atom, bounded generation, proxy path, duplicate prevention, failures a
     const payload = JSON.parse(options.body);
     assert.match(payload.messages[0].content, /untrusted/);
     const snippet = JSON.parse(payload.messages[1].content);
-    const n = snippet.url.at(-1);
+    assert.ok(snippet.categories.some(({ slug }) => slug === 'cloud-native'));
+    const n = snippet.news.url.at(-1);
     modelCalls++;
     const value = clone();
+    value.section = 'cloud-native';
     value.en.slug += '-' + n; value.fa.slug += '-' + n;
     value.en.title += ' ' + n; value.fa.title += ' ' + n;
     return Response.json({ choices: [{ message: { content: invalid ? '{}' : JSON.stringify(value) } }] });
   };
+  store.saveCategory({ slug: 'cloud-native', nameFa: 'زیرساخت ابری', nameEn: 'Cloud Native' });
   store.setSystem({ proxySecret: 'http://127.0.0.1:3128', aiKey: 'fixture-only' });
   const worker = createAutomation(store, { request, now: () => time });
   try {
@@ -168,7 +171,7 @@ test('official MCP client initializes and enforces separate CRUD and publication
   const client = new Client({ name: 'integration-test', version: '1.0.0' });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${mcpKey}` } } }));
   try {
-    assert.deepEqual((await client.listTools()).tools.map(({ name }) => name), ['list_articles', 'get_article']);
+    assert.deepEqual((await client.listTools()).tools.map(({ name }) => name), ['list_articles', 'get_article', 'list_categories']);
     store.setSettings({ ...store.getSettings(), mcpWrite: true, mcpPublish: true });
     const tools = (await client.listTools()).tools;
     const create = tools.find(({ name }) => name === 'create_article');
@@ -286,10 +289,11 @@ test('existing SQLite journals migrate without replacing articles or settings; m
     store.setSettings({ ...defaults, mcp: true });
     store.close();
     const legacy = new DatabaseSync(path);
-    legacy.exec("DROP TABLE article_media; DROP TABLE media; UPDATE articles SET payload=json_remove(payload,'$.cover'); PRAGMA user_version=1;");
+    legacy.exec("DROP TRIGGER article_category_insert; DROP TRIGGER article_category_update; DROP INDEX article_category; DROP TABLE categories; DROP TABLE article_media; DROP TABLE media; UPDATE articles SET payload=json_remove(payload,'$.cover'); PRAGMA user_version=1;");
     legacy.close();
     store = openBlog(path);
     assert.equal(store.getSettings().mcp, true);
+    assert.equal(store.findCategory(old.section).slug, old.section);
     assert.deepEqual(store.find(old.id), old);
     const sample = sampleImage();
     assert.throws(() => store.uploadImage(sample.subarray(0, 32)), MediaError);
@@ -353,6 +357,9 @@ test('MCP can upload and reuse media; publication, cover updates and safe deleti
     const { image } = (await call('upload_image', { base64: bytes.toString('base64') })).structuredContent;
     assert.equal(image.type, 'image/webp');
     assert.equal(image.size, bytes.length);
+    const preview = await call('get_image', { id: image.id });
+    assert.equal(preview.content[0].mimeType, 'image/webp');
+    assert.deepEqual(Buffer.from(preview.content[0].data, 'base64'), bytes);
     const article = clone();
     article.fa.slug += '-تصویر'; article.en.slug += '-image'; article.sources = [];
     article.en.body += `\n\n![Body figure][figure]\n\n[figure]: ${image.url}`;
@@ -380,5 +387,81 @@ test('MCP can upload and reuse media; publication, cover updates and safe deleti
     assert.equal((await call('delete_image', { id: image.id })).structuredContent.removed, true);
     store.setSettings({ ...store.getSettings(), mcpWrite: false });
     assert.ok(!(await client.listTools()).tools.some(({ name }) => name.endsWith('_image') || name === 'list_images'));
+  } finally { await client.close(); }
+});
+
+
+const category = { slug: 'cloud-platforms', nameFa: 'پلتفرم‌های ابری', nameEn: 'Cloud platforms', descriptionFa: 'راهنمای ساخت زیرساخت', descriptionEn: 'Guides to building infrastructure', theme: 'violet', position: 5 };
+
+test('bilingual category pages keep filters while paging, expose only published counts and are discoverable', async (t) => {
+  const { store, url } = await fixture(t);
+  store.saveCategory(category);
+  assert.equal(store.categories()[0].slug, category.slug);
+  assert.throws(() => store.saveCategory(category), /already exists/);
+  assert.throws(() => store.saveCategory({ ...category, slug: 'different' }, category.slug), /cannot be changed/);
+  assert.throws(() => store.save({ ...clone(), section: 'unknown-category' }), /does not exist/);
+  for (let n = 0; n < 9; n++) {
+    const item = clone();
+    item.section = category.slug;
+    item.sources = [];
+    item.en.title = `${n === 7 ? 'Other' : 'Topic'} guide ${n}`;
+    item.en.slug = `cloud-guide-${n}`;
+    item.fa.slug = `راهنما-${n}`;
+    item.state = n < 8 ? 'published' : 'draft';
+    store.save(item);
+  }
+  assert.equal(store.categories().find(({ slug }) => slug === category.slug).count, 8);
+  assert.equal(store.categories(true).find(({ slug }) => slug === category.slug).count, 9);
+  assert.throws(() => store.removeCategory(category.slug), /Move articles/);
+  const path = '/en/blog/category/' + category.slug;
+  const faPath = '/blog/category/' + category.slug;
+  const first = await (await fetch(url + path + '?q=Topic')).text();
+  assert.match(first, /<h1>Cloud platforms<\/h1>/);
+  assert.equal((first.match(/class="journal-card"/g) || []).length, 6);
+  assert.ok(first.includes(`href="${path}?page=2&amp;q=Topic"`));
+  assert.ok(first.includes(`hreflang="fa" href="${origin}${faPath}"`));
+  const second = await (await fetch(url + path + '?page=2&q=Topic')).text();
+  assert.equal((second.match(/class="journal-card"/g) || []).length, 1);
+  assert.match(second, /aria-current="page">2<\/span>/);
+  assert.doesNotMatch(second, /Topic guide 8/);
+  assert.equal((await fetch(url + path + '?page=3')).status, 404);
+  const legacy = await fetch(`${url}/en/blog?section=${category.slug}&q=Topic`, { redirect: 'manual' });
+  assert.equal(legacy.status, 308);
+  assert.equal(legacy.headers.get('location'), path + '?q=Topic');
+  const article = await (await fetch(url + '/en/blog/cloud-guide-1')).text();
+  assert.ok(article.includes(`href="${path}">Cloud platforms`));
+  assert.ok((await (await fetch(url + '/sitemap.xml')).text()).includes(origin + path));
+  const empty = await (await fetch(url + '/en/blog/category/design')).text();
+  assert.match(empty, /noindex,follow/);
+  assert.equal(store.removeCategory('design'), true);
+  assert.equal((await fetch(url + '/en/blog/category/design')).status, 404);
+});
+
+test('official MCP category CRUD and article assignment observe the publication permission', async (t) => {
+  const { store, url } = await fixture(t, { mcp: true, mcpWrite: true });
+  const client = new Client({ name: 'category-integration', version: '1.0.0' });
+  await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${mcpKey}` } } }));
+  const call = (name, args) => client.callTool({ name, arguments: args });
+  try {
+    assert.ok((await call('list_categories', {})).structuredContent.categories.some(({ slug }) => slug === 'engineering'));
+    assert.ok(!(await client.listTools()).tools.some(({ name }) => name === 'create_category'));
+    store.setSettings({ ...store.getSettings(), mcpPublish: true });
+    const added = await call('create_category', { category });
+    assert.equal(added.structuredContent.category.nameFa, category.nameFa);
+    const { slug, ...properties } = category;
+    const updated = await call('update_category', { slug, category: { ...properties, nameEn: 'Cloud and infrastructure' } });
+    assert.equal(updated.structuredContent.category.nameEn, 'Cloud and infrastructure');
+    const value = clone();
+    value.section = slug; value.sources = []; value.en.slug += '-cloud'; value.fa.slug += '-ابری';
+    const created = await call('create_article', { article: value });
+    assert.equal(created.structuredContent.article.section, slug);
+    assert.equal((await call('list_articles', { state: 'draft', section: slug })).structuredContent.total, 1);
+    assert.equal((await call('delete_category', { slug })).isError, true);
+    store.setSettings({ ...store.getSettings(), mcpWrite: false });
+    assert.equal((await call('list_categories', {})).structuredContent.categories.find((item) => item.slug === slug).count, 0);
+    assert.equal((await call('list_articles', { state: 'draft', section: slug })).structuredContent.total, 0);
+    store.setSettings({ ...store.getSettings(), mcpWrite: true });
+    await call('delete_article', { id: created.structuredContent.article.id });
+    assert.equal((await call('delete_category', { slug })).structuredContent.removed, true);
   } finally { await client.close(); }
 });

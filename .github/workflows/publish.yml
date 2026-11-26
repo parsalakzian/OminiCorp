@@ -42,6 +42,7 @@ jobs:
           curl -fsSI http://127.0.0.1:8080/assets/fonts/vazirmatn-arabic-wght-normal.woff2
           curl -fsSI http://127.0.0.1:8080/assets/media/hero.webp
           curl -fsS http://127.0.0.1:8080/blog | grep 'rel="canonical"'
+          curl -fsS http://127.0.0.1:8080/en/blog/category/security | grep '<h1>Security</h1>'
           curl -fsS http://127.0.0.1:8080/en/blog/first-ai-workflow | grep 'BlogPosting'
           curl -fsS http://127.0.0.1:8080/sitemap.xml | grep 'hreflang="en"'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/admin)" = 303
