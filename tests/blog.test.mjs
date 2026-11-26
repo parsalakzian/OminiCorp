@@ -575,8 +575,20 @@ test('modern Streamable HTTP negotiates the SDK protocol, sends JSON-RPC over SS
   const bad = await post('{', direct);
   assert.equal(bad.status, 400);
   assert.deepEqual(await bad.json(), { jsonrpc: '2.0', error: { code: -32700, message: 'Parse error: Invalid JSON' }, id: null });
-  assert.equal((await post(init(LATEST_PROTOCOL_VERSION), 'application/json')).status, 406);
-  assert.equal((await post(init(LATEST_PROTOCOL_VERSION), 'application/json, text/event-stream;q=0')).status, 406);
+  for (const accept of ['*/*', 'application/json', 'application/json, text/event-stream;q=0']) {
+    const plain = await post(frame(9, 'tools/list'), accept);
+    assert.equal(plain.status, 200);
+    assert.match(plain.headers.get('content-type'), /^application\/json/);
+    const result = await plain.json();
+    assert.equal(result.jsonrpc, '2.0');
+    assert.equal(result.id, 9);
+    assert.ok(result.result.tools.some(({ name }) => name === 'list_articles'));
+  }
+  assert.equal((await post(frame(9, 'tools/list'), 'text/html')).status, 406);
+  assert.equal((await post(frame(9, 'tools/list'), 'application/json;q=0, */*')).status, 406);
+  const streamOnly = await post(frame(10, 'ping'), 'TEXT/EVENT-STREAM');
+  assert.match(streamOnly.headers.get('content-type'), /^text\/event-stream/);
+  assert.match(await streamOnly.text(), /"id":10/);
   assert.equal((await post(frame(3, 'ping'), direct, { 'MCP-Protocol-Version': '1999-12-31' })).status, 400);
 });
 
