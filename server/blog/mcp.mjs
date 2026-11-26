@@ -1,5 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { z } from 'zod';
 import { articleSchema } from './schema.mjs';
 import { CategoryError, categorySchema, categorySlug } from './categories.mjs';
@@ -11,10 +11,10 @@ const problem = (error) => result({ error }, true);
 const id = z.number().int().positive();
 const readOnly = { readOnlyHint: true, openWorldHint: false };
 
-export async function handleMcp(req, res, body, { store, automation, importImage, canWrite, signal, mode }) {
+export async function handleMcp(request, body, { store, automation, importImage, canWrite, signal, mode }, respond) {
   const settings = store.getSettings();
   const mcp = new McpServer({ name: 'ominicorp-journal', version: '1.0.0' });
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: mode === 'json' });
+  const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: mode === 'json' });
   const register = (name, description, inputSchema, annotations, handler) => mcp.registerTool(name, { description, inputSchema, annotations }, async (data, extra) => {
     try { return await handler(data, extra); }
     catch (error) { return problem(error instanceof BlogConflict || error instanceof MediaError || error instanceof CategoryError ? error.message : 'Editorial operation failed.'); }
@@ -83,6 +83,6 @@ export async function handleMcp(req, res, body, { store, automation, importImage
       return item ? result({ article: store.save({ ...item, state: input.published ? 'published' : 'draft' }, input.id) }) : problem('Article not found.');
     });
   }
-  try { await mcp.connect(transport); await transport.handleRequest(req, res, body); }
+  try { await mcp.connect(transport); await respond(await transport.handleRequest(request, { parsedBody: body })); }
   finally { await mcp.close(); }
 }

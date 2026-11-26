@@ -1,3 +1,5 @@
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { constantEqual, tokenHash } from '../installation.mjs';
 import { imageContentTypes, maxImageBytes, maxImageInput, maxImageMiB, MediaError } from './media.mjs';
 import { handleMcp } from './mcp.mjs';
@@ -13,16 +15,17 @@ function responseType(accept = '') {
   for (const value of accept.split(',')) {
     const [media, ...params] = value.trim().split(';');
     const type = media.trim().toLowerCase();
-    if (type !== 'application/json' && type !== 'text/event-stream') continue;
+    if (!['application/json', 'text/event-stream', 'application/*', '*/*'].includes(type)) continue;
     const quality = params.map((param) => param.trim()).find((param) => /^q\s*=/i.test(param));
     const weight = quality ? Number(quality.slice(quality.indexOf('=') + 1)) : 1;
     if (Number.isFinite(weight) && weight >= 0 && weight <= 1) qualities.set(type, Math.max(qualities.get(type) || 0, weight));
   }
-  const json = qualities.get('application/json');
-  const stream = qualities.get('text/event-stream');
-  // Streamable HTTP clients advertise both; choose SSE on equal preference.
-  if (!json || !stream) return undefined;
-  return json > stream ? 'json' : 'sse';
+  if (!accept.trim()) return 'json';
+  const json = qualities.get('application/json') ?? qualities.get('application/*') ?? qualities.get('*/*') ?? 0;
+  // Wildcards (including curl's default) are not a request for an event stream.
+  const stream = qualities.get('text/event-stream') ?? 0;
+  if (stream > 0 && stream >= json) return 'sse';
+  return json > 0 ? 'json' : undefined;
 }
 
 const rpcError = (res, status, code, message) => res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
@@ -80,7 +83,7 @@ export function createMcpHttp({ store, automation, readBytes, importImage }) {
       return jsonError(res, 415, binary ? 'Send a raw PNG, JPEG or WebP file, with its image content type or application/octet-stream. Do not use multipart.' : 'Send Content-Type: application/json.');
     }
     const mode = binary ? undefined : responseType(req.headers.accept);
-    if (!binary && !mode) return rpcError(res, 406, -32000, 'Send Accept: application/json, text/event-stream.');
+    if (!binary && !mode) return rpcError(res, 406, -32000, 'Accept application/json for JSON, or text/event-stream for SSE.');
     const now = Date.now();
     if (now >= windowEnd) { windowEnd = now + 60000; count = 0; }
     if (++count > 120 || (settings.mcpWrite && activeWrites >= 3)) {
@@ -108,7 +111,18 @@ export function createMcpHttp({ store, automation, readBytes, importImage }) {
       }
       let body;
       try { body = JSON.parse(raw.toString('utf8')); } catch { return rpcError(res, 400, -32700, 'Parse error: Invalid JSON'); }
-      await handleMcp(req, res, body, { store, automation, importImage, canWrite, signal: client.signal, mode });
+      // The SDK enforces a conforming Streamable HTTP Accept header. Normalize that
+      // internal request after negotiating the actual client response above.
+      const headers = new Headers({ Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json' });
+      if (req.headers['mcp-protocol-version']) headers.set('MCP-Protocol-Version', req.headers['mcp-protocol-version']);
+      const request = new Request(new URL('/mcp', siteUrl), { method: 'POST', headers, signal: client.signal });
+      await handleMcp(request, body, { store, automation, importImage, canWrite, signal: client.signal, mode }, async (response) => {
+        for (const [name, value] of response.headers) res.setHeader(name, value);
+        res.setHeader('Cache-Control', mode === 'sse' ? 'no-store, no-transform' : 'no-store');
+        res.writeHead(response.status);
+        if (!response.body) return res.end();
+        await pipeline(Readable.fromWeb(response.body), res);
+      });
     } finally {
       res.off('close', onClose);
       if (settings.mcpWrite) activeWrites--;
