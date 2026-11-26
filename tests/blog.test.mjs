@@ -368,11 +368,17 @@ test('MCP can upload and reuse media; publication, cover updates and safe deleti
     const id = created.id;
     assert.equal(created.cover.altEn, 'Cover figure');
     assert.equal((await fetch(url + image.url)).status, 404);
+    assert.ok(!(await (await fetch(url + '/en/blog')).text()).includes(image.url));
     assert.equal((await call('list_images', {})).structuredContent.items[0].used, 1);
     assert.equal((await call('delete_image', { id: image.id })).isError, true);
     const { cover, ...noCover } = article;
     assert.deepEqual((await call('update_article', { id, article: noCover })).structuredContent.article.cover, created.cover);
     assert.equal((await call('publish_article', { id, published: true })).structuredContent.article.state, 'published');
+    for (const index of ['/blog', '/en/blog']) {
+      const listing = await (await fetch(url + index)).text();
+      assert.ok(listing.includes(`class="journal-art" href="${index}/`));
+      assert.equal(listing.split(`src="${image.url}"`).length - 1, 2, 'MCP cover appears in the featured link and article card');
+    }
     const publicImage = await fetch(url + image.url);
     assert.equal(publicImage.status, 200);
     assert.deepEqual(Buffer.from(await publicImage.arrayBuffer()), bytes);
