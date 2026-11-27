@@ -1,3 +1,4 @@
+import { icons, seoHead, shareHome } from '../server/seo.mjs';
 import { homePath, renderLatestArticles } from '../server/blog/home.mjs';
 import { contacts, getServices, locales } from './content.mjs';
 import { icon } from './icons.mjs';
@@ -20,7 +21,7 @@ function header(copy, isFa) {
       <a href="${isFa ? '/blog' : '/en/blog'}">${isFa ? 'وبلاگ' : 'Journal'}</a>
     </nav>
     <div class="head-actions">
-      <a class="locale" href="${isFa ? 'en.html' : 'index.html'}" hreflang="${isFa ? 'en' : 'fa'}" lang="${isFa ? 'en' : 'fa'}" aria-label="${text(copy.alternateName)}">${text(copy.alternate)}</a>
+      <a class="locale" href="${isFa ? '/en.html' : '/'}" hreflang="${isFa ? 'en' : 'fa'}" lang="${isFa ? 'en' : 'fa'}" aria-label="${text(copy.alternateName)}">${text(copy.alternate)}</a>
       <a class="button button-small button-outline" href="#contacts">${text(copy.consultation)}${icon('upRight')}</a>
     </div>
   </div>
@@ -39,11 +40,11 @@ function hero(copy) {
         <button class="button button-muted" type="button" data-open="guide" hidden>${icon('spark')}${text(copy.guideAction)}</button>
       </div>
     </div>
-    <div class="hero-visual" aria-hidden="true" dir="ltr">
-      <div class="hero-frame"><span></span><span></span><span></span><span></span></div>
-      <img src="assets/media/hero.webp" alt="" width="1150" height="859" fetchpriority="high">
-      <div class="visual-top"><span>OC / 01</span><span>+ &nbsp; SYSTEM VIEW</span></div>
-      <div class="visual-bottom"><span>FIG. 01 <b> / </b> OMNI CORE</span><span lang="${copy.direction === 'rtl' ? 'fa' : 'en'}"><i class="signal"></i> ${text(copy.visualLabel)}</span></div>
+    <div class="hero-visual" dir="ltr">
+      <div class="hero-frame" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+      <img src="assets/media/hero.webp" alt="${text(copy.heroAlt)}" width="1150" height="859" fetchpriority="high">
+      <div class="visual-top" aria-hidden="true"><span>OC / 01</span><span>+ &nbsp; SYSTEM VIEW</span></div>
+      <div class="visual-bottom" aria-hidden="true"><span>FIG. 01 <b> / </b> OMNI CORE</span><span lang="${copy.direction === 'rtl' ? 'fa' : 'en'}"><i class="signal"></i> ${text(copy.visualLabel)}</span></div>
     </div>
   </div>
 </section>
@@ -70,7 +71,7 @@ function catalog(copy, services) {
   <div class="service-grid">${services.map((service, i) => serviceCard(service, i, copy)).join('\n')}</div>
   <div class="guide-banner" data-enhanced hidden>
     <span class="tile">${icon('spark')}</span>
-    <div><div class="guide-kicker">${text(copy.guideLabel)}</div><h3>${text(copy.guideHeading)}</h3><p>${text(copy.guideBody)}</p></div>
+    <div><div class="guide-kicker">${text(copy.guideLabel)}</div><p class="guide-question">${text(copy.guideHeading)}</p><p>${text(copy.guideBody)}</p></div>
     <button class="button button-outline" type="button" data-open="guide">${text(copy.guideButton)}${arrow}</button>
   </div>
 </section>`;
@@ -80,7 +81,7 @@ function about(copy) {
   return `<section id="about" class="about-section" aria-labelledby="about-title">
   <div class="shell about-layout">
     <div>${eyebrow(copy.aboutLabel, '02')}<h2 id="about-title">${text(copy.aboutHeading)}</h2><p>${text(copy.aboutBody)}</p></div>
-    <ol class="steps">${copy.steps.map(([title, body], i) => `<li><span dir="ltr">${serial(i)}</span><div><h3>${text(title)}</h3><p>${text(body)}</p></div></li>`).join('')}</ol>
+    <ol class="steps">${copy.steps.map(([title, body], i) => `<li><span dir="ltr">${serial(i)}</span><div><strong class="step-title">${text(title)}</strong><p>${text(body)}</p></div></li>`).join('')}</ol>
   </div>
 </section>`;
 }
@@ -128,10 +129,18 @@ function dialogs(copy) {
   ].join('\n');
 }
 
-export function render(language, { origin, articles, categories } = {}) {
+export function render(language, { origin, articles, categories, imageSize } = {}) {
   const copy = locales[language];
   const isFa = language === 'fa';
-  const absolute = (lang) => text(new URL(homePath(lang), origin).href);
+  const absolute = (path) => new URL(path, origin).href;
+  const canonical = homePath(language);
+  const services = getServices(language);
+  const schema = origin && { '@context': 'https://schema.org', '@graph': [
+    { '@type': 'Organization', '@id': absolute('/#organization'), name: 'OminiCorp', alternateName: 'اومینی‌کورپ', url: absolute('/'), logo: absolute('/assets/media/logo.webp'), telephone: contacts.find(({ id }) => id === 'phone').href.slice(4), sameAs: contacts.filter(({ id }) => ['telegram', 'instagram'].includes(id)).map(({ href }) => href) },
+    { '@type': 'WebSite', '@id': absolute('/#website'), url: absolute('/'), name: 'OminiCorp', inLanguage: ['fa', 'en'], publisher: { '@id': absolute('/#organization') } },
+    { '@type': 'WebPage', '@id': absolute(canonical + '#webpage'), url: absolute(canonical), name: copy.title, description: copy.description, inLanguage: language, isPartOf: { '@id': absolute('/#website') },
+      about: services.map(([id, name, description]) => ({ '@type': 'Service', name, description, url: absolute(canonical + '#service-' + id), provider: { '@id': absolute('/#organization') } })) },
+  ] };
   return `<!doctype html>
 <!-- Generated by node site/build.mjs. Edit site/ instead. -->
 <html lang="${language}" dir="${copy.direction}">
@@ -139,13 +148,10 @@ export function render(language, { origin, articles, categories } = {}) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#080d0b">
-  <meta name="description" content="${text(copy.description)}">
-  <title>${text(copy.title)}</title>
-  ${origin ? `<link rel="canonical" href="${absolute(language)}"><link rel="alternate" hreflang="fa" href="${absolute('fa')}"><link rel="alternate" hreflang="en" href="${absolute('en')}"><link rel="alternate" hreflang="x-default" href="${absolute('fa')}">` : ''}
-  <link rel="icon" type="image/webp" href="assets/media/logo.webp">
-  <link rel="stylesheet" href="assets/site.css">
-  <link rel="stylesheet" href="assets/forms.css">
-  <link rel="stylesheet" href="assets/tv.css">
+  ${seoHead({ lang: language, origin, title: copy.title, description: copy.description, canonical: origin && canonical,
+    alternates: { fa: '/', en: '/en.html' }, image: { ...shareHome, alt: copy.heroAlt }, schema })}
+  ${icons}
+  <link rel="stylesheet" href="/assets/home.css">
   <script type="module" src="assets/site.mjs"></script>
   <script type="module" src="assets/forms.mjs"></script>
 </head>
@@ -154,9 +160,9 @@ export function render(language, { origin, articles, categories } = {}) {
 ${header(copy, isFa)}
 <main id="main" tabindex="-1">
 ${hero(copy)}
-${catalog(copy, getServices(language))}
+${catalog(copy, services)}
 ${about(copy)}
-${renderLatestArticles(language, articles, categories)}
+${renderLatestArticles(language, articles, categories, imageSize)}
 ${contact(copy, language)}
 </main>
 <footer class="site-footer"><div class="shell footer-inner">

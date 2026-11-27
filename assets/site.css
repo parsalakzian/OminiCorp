@@ -135,7 +135,7 @@ summary::-webkit-details-marker { display: none; }
 li::marker { color: var(--lime); }
 .guide-banner { display: flex; align-items: center; gap: 16px; margin-block-start: 18px; padding: 19px; background: linear-gradient(110deg, #14221a, #101713); border: 1px solid #304436; border-radius: 11px; }
 .guide-banner .tile { --accent: var(--cyan); }
-.guide-banner h3 { font-size: 18px; }
+.guide-banner .guide-question { color: var(--text); font-size: 18px; font-weight: 750; }
 .guide-banner p { color: var(--muted); font-size: 13px; }
 .guide-kicker { color: var(--cyan); font-size: 11px; font-weight: 750; }
 .guide-banner button { margin-inline-start: auto; }
@@ -146,7 +146,7 @@ li::marker { color: var(--lime); }
 .steps li { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-block-end: 1px solid var(--line); }
 .steps li:first-child { border-block-start: 1px solid var(--line); }
 .steps span { color: var(--cyan); font: 650 13px var(--display); }
-.steps h3 { font-size: 16px; }
+.steps .step-title { font-size: 16px; }
 .steps p { margin-block-start: 2px; font-size: 13px; }
 .contact-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .contact-card { --accent: var(--lime); display: flex; gap: 11px; align-items: center; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }

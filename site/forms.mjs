@@ -31,21 +31,21 @@ const copy = {
 
 export function renderForms(lang) {
   const t = copy[lang];
-  const email = `<label>${t.email}<input type="email" name="email" autocomplete="email" dir="ltr" maxlength="254" required></label>`;
+  const email = (kind) => `<label for="${kind}-email">${t.email}<input id="${kind}-email" type="email" name="email" autocomplete="email" dir="ltr" maxlength="254" required></label>`;
   const messages = { sending: t.sending, disabled: t.disabled, invalid: t.invalid, rate: t.rate, unavailable: t.unavailable };
   const form = (kind, title, lead, mark, sent, fields, button) => `<section class="mail-card" aria-labelledby="${kind}-title">
   <span class="tile">${icon(mark)}</span><h3 id="${kind}-title">${title}</h3><p>${lead}</p>
   <form method="post" action="/api/${kind}" data-mail="${kind}" ${Object.entries({ ...messages, sent }).map(([key, value]) => `data-${key}="${value}"`).join(' ')}>
     <fieldset disabled>
       ${fields}
-      <input name="website" type="text" autocomplete="off" tabindex="-1" hidden>
+      <input name="website" type="text" autocomplete="off" tabindex="-1" hidden aria-label="${lang === 'fa' ? 'این فیلد را خالی بگذارید' : 'Leave this field empty'}">
       <button class="button button-primary" type="submit">${button}${icon('arrow', 'directional')}</button>
     </fieldset>
     <p class="form-status" role="status" data-loading hidden>${t.loading}</p><noscript><p>${t.nojs}</p></noscript>
   </form>
 </section>`;
   return `<div class="mail-grid">
-  ${form('request', t.request, t.requestText, 'telegram', t.sentRequest, `<div class="field-row"><label>${t.name}<input name="name" maxlength="100" autocomplete="name" required></label>${email}</div><label>${t.message}<textarea name="message" rows="4" minlength="10" maxlength="3000" required></textarea></label>`, t.submitRequest)}
-  ${form('subscribe', t.newsletter, t.newsletterText, 'spark', t.sentSubscription, `${email}<label class="consent"><input type="checkbox" name="consent" required><span>${t.consent}</span></label>`, t.subscribe)}
+  ${form('request', t.request, t.requestText, 'telegram', t.sentRequest, `<div class="field-row"><label for="request-name">${t.name}<input id="request-name" name="name" maxlength="100" autocomplete="name" required></label>${email('request')}</div><label for="request-message">${t.message}<textarea id="request-message" name="message" rows="4" minlength="10" maxlength="3000" required></textarea></label>`, t.submitRequest)}
+  ${form('subscribe', t.newsletter, t.newsletterText, 'spark', t.sentSubscription, `${email('subscribe')}<label class="consent" for="subscribe-consent"><input id="subscribe-consent" type="checkbox" name="consent" required><span>${t.consent}</span></label>`, t.subscribe)}
 </div>`;
 }
