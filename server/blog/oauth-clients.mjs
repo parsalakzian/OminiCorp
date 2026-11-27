@@ -1,3 +1,4 @@
+import { accessFromForm } from './mcp-access.mjs';
 import { makeKey, parseOrigin, tokenHash } from '../installation.mjs';
 
 export const clientIdPattern = /^[A-Za-z0-9._~-]{3,100}$/;
@@ -34,6 +35,5 @@ export function manualClient(params) {
   const supplied = params.get('client_secret') || '';
   if (supplied && (auth === 'none' || supplied.length < 16 || supplied.length > 256 || /[^\x21-\x7e]/.test(supplied))) throw new Error('Invalid client secret');
   const secret = auth === 'none' ? '' : (supplied || makeKey());
-  const writeAccess = params.get('writeAccess') === 'on';
-  return { client: { id, name, redirect, redirects, auth, secret: secret && tokenHash(secret), writeAccess, publishAccess: writeAccess && params.get('publishAccess') === 'on' }, secret: supplied ? '' : secret };
+  return { client: { id, name, redirect, redirects, auth, secret: secret && tokenHash(secret), ...accessFromForm(params, 'full') }, secret: supplied ? '' : secret };
 }

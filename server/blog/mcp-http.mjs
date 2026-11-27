@@ -1,3 +1,4 @@
+import { effectiveAccess } from './mcp-access.mjs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { constantEqual, tokenHash } from '../installation.mjs';
@@ -79,9 +80,10 @@ export function createMcpHttp({ store, oauth, automation, readBytes, importImage
     }
     const currentGrant = () => fixed ? (constantEqual(tokenHash(bearer), store.getSystem().mcpHash) && { writeAccess: true, publishAccess: true }) : oauth.authenticate(bearer);
     const stillAuthenticated = () => store.getSettings().mcp && Boolean(currentGrant());
-    const canWrite = () => store.getSettings().mcp && store.getSettings().mcpWrite && Boolean(currentGrant()?.writeAccess);
-    const canPublish = () => canWrite() && store.getSettings().mcpPublish && Boolean(currentGrant()?.publishAccess);
-    const writable = settings.mcpWrite && (fixed || authClient.writeAccess);
+    const liveAccess = () => effectiveAccess(store.getSettings(), currentGrant());
+    const canWrite = () => liveAccess().writeAccess;
+    const canPublish = () => liveAccess().publishAccess;
+    const { writeAccess: writable, publishAccess: publishable } = effectiveAccess(settings, fixed ? { writeAccess: true, publishAccess: true } : authClient);
     if (binary && !writable) return jsonError(res, 403, 'Enable MCP write access in Site Settings to upload media.');
     const type = req.headers['content-type']?.split(';')[0].trim().toLowerCase();
     if (binary ? !imageContentTypes.includes(type) : type !== 'application/json') {
@@ -121,7 +123,7 @@ export function createMcpHttp({ store, oauth, automation, readBytes, importImage
       const headers = new Headers({ Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json' });
       if (req.headers['mcp-protocol-version']) headers.set('MCP-Protocol-Version', req.headers['mcp-protocol-version']);
       const request = new Request(new URL('/mcp', siteUrl), { method: 'POST', headers, signal: client.signal });
-      await handleMcp(request, body, { store, automation, importImage, canWrite, canPublish, writable, publishable: canPublish(), signal: client.signal, mode, oauthEnabled: oauth.enabled() }, async (response) => {
+      await handleMcp(request, body, { store, automation, importImage, canWrite, canPublish, writable, publishable, signal: client.signal, mode, oauthEnabled: oauth.enabled() }, async (response) => {
         for (const [name, value] of response.headers) res.setHeader(name, value);
         res.setHeader('Cache-Control', mode === 'sse' ? 'no-store, no-transform' : 'no-store');
         res.writeHead(response.status);

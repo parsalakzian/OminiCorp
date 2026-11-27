@@ -120,7 +120,7 @@ test('MCP token actions need CSRF, reveal once, rotate atomically and revoke liv
     const headers = { Cookie: cookie };
     const csrf = await csrfFrom(url, cookie);
     assert.equal((await post(url, `${mcp}/token`, {}, headers)).status, 403);
-    assert.equal((await post(url, mcp, { csrf, mcp: 'on', mcpWrite: 'on' }, headers)).status, 303);
+    assert.equal((await post(url, mcp, { csrf, mcp: 'on', mcpWrite: 'on', mcpDcrCallbacks: '' }, headers)).status, 303);
     async function generate() {
       const response = await post(url, `${mcp}/token`, { csrf }, headers);
       assert.equal(response.status, 303);

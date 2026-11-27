@@ -1,5 +1,6 @@
+import { maxDcrCallbacks } from './oauth-registration.mjs';
 import { callbackList, manualClient } from './oauth-clients.mjs';
-import { validChatGPTPair } from './oauth-chatgpt.mjs';
+import { accessFromForm, accessModes, accessMode } from './mcp-access.mjs';
 import { authorizePath, createOAuth, localOAuthReturn } from './oauth.mjs';
 import { connectionsPage, connectionsPath, consentPage, endpointCard, mcpNavigation, newClientPage, newClientPath } from './oauth-admin.mjs';
 import { checkPassword, constantEqual as equal, makeKey as random, parseOrigin, passwordRecord, tokenHash, updateAiSecrets, updateSystem, validPassword } from '../installation.mjs';
@@ -66,7 +67,7 @@ export function createBlog(options = {}) {
   const automation = options.automation || createAutomation(store, options.network);
   const sessions = new Map(), loginAttempts = new Map();
   let loginWindow = 0, totalAttempts = 0, pending, activeChecks = 0;
-  const oauth = createOAuth(store, read, options.fetchOAuthDocument);
+  const oauth = createOAuth(store, read);
   const mcp = createMcpHttp({ store, oauth, automation, readBytes, importImage: options.importImage || createImageImporter() });
   const setCookie = (res, value, age, origin) => res.setHeader('Set-Cookie', `${cookieName}=${value}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${age}${origin.startsWith('https:') ? '; Secure' : ''}`);
   function originAllowed(req, origin) {
@@ -158,13 +159,13 @@ export function createBlog(options = {}) {
     }
     if (path === authorizePath && readOnly) {
       const pending = localOAuthReturn(path + url.search);
-      const candidate = pending && await oauth.authRequest(url.searchParams);
+      const candidate = pending && oauth.authRequest(url.searchParams);
       if (!candidate) return res.writeHead(400).end('Invalid OAuth authorization request. Check the registered Client ID, exact Redirect URI, PKCE S256, scope mcp and the MCP resource URL.');
       if (!logged) return redirect(res, '/admin/login?' + new URLSearchParams({ next: pending }));
       // Chromium may enforce form-action on the POST's OAuth redirect as well.
       const callbackOrigin = new URL(candidate.redirect).origin;
       res.setHeader('Content-Security-Policy', res.getHeader('Content-Security-Policy').replace("form-action 'self'", `form-action 'self' ${callbackOrigin}`));
-      return html(req, res, 200, consentPage(origin, session.csrf, candidate.client, url.search.slice(1)));
+      return html(req, res, 200, consentPage(origin, session.csrf, candidate.client, candidate.redirect, url.search.slice(1), store.getSettings()));
     }
     if (!logged) return redirect(res, '/admin/login');
     const csrf = session.csrf;
@@ -247,17 +248,22 @@ export function createBlog(options = {}) {
     if (path === authorizePath) {
       const request = params.get('request');
       const decision = params.get('decision');
-      const candidate = request && request.length <= 4096 && await oauth.authRequest(new URLSearchParams(request));
+      const candidate = request && request.length <= 4096 && oauth.authRequest(new URLSearchParams(request));
       if (!candidate || !['allow','deny'].includes(decision)) return res.writeHead(400).end('Invalid OAuth authorization request. Check the registered Client ID, exact Redirect URI, PKCE S256, scope mcp and the MCP resource URL.');
       if (sessions.get(token) !== session || session.expires <= Date.now() || store.getOwner()?.hash !== owner.hash) return res.writeHead(403).end();
       return oauth.authorize(res, candidate, decision === 'deny', owner);
     }
-    if ([`${mcpSettings}/oauth`, `${mcpSettings}/oauth/remove`, `${mcpSettings}/oauth/access`, `${mcpSettings}/oauth/rotate`].includes(path)) {
+    if ([`${mcpSettings}/oauth`, `${mcpSettings}/oauth/remove`, `${mcpSettings}/oauth/access`, `${mcpSettings}/oauth/rotate`, `${mcpSettings}/oauth/full`].includes(path)) {
       if (sessions.get(token) !== session || session.expires <= Date.now() || store.getOwner()?.hash !== owner.hash) return res.writeHead(403).end();
       if (path.endsWith('/remove')) {
         if (!store.oauth.removeClient(params.get('client_id') || '')) return res.writeHead(404).end();
       } else if (path.endsWith('/access')) {
-        if (!store.oauth.setClientAccess(params.get('client_id') || '', params.get('writeAccess') === 'on', params.get('publishAccess') === 'on')) return res.writeHead(404).end();
+        let access;
+        try { access = accessFromForm(params); } catch { return res.writeHead(422).end('Invalid MCP access level.'); }
+        if (!store.oauth.setClientAccess(params.get('client_id') || '', access.writeAccess, access.publishAccess)) return res.writeHead(404).end();
+      } else if (path.endsWith('/full')) {
+        if (params.get('confirm') !== 'on') return res.writeHead(422).end('Confirm applying full OAuth access.');
+        store.oauth.restoreFullAccess();
       } else if (path.endsWith('/rotate')) {
         const id = params.get('client_id') || '';
         const secret = random();
@@ -305,19 +311,17 @@ export function createBlog(options = {}) {
       return redirect(res, '/admin/system/ai?notice=settings');
     }
     if (path === '/admin/system/mcp') {
-      const switches = Object.fromEntries(['mcp', 'mcpWrite', 'mcpPublish', 'mcpChatGPT'].map((key) => [key, params.get(key) === 'on']));
-      const mcpCimdClient = params.get('mcpCimdClient')?.trim() ?? status.mcpCimdClient;
-      const mcpCimdCallback = params.get('mcpCimdCallback')?.trim() ?? status.mcpCimdCallback;
-      if (!validChatGPTPair(mcpCimdClient, mcpCimdCallback)) return html(req, res, 422, mcpPage({
-        error: 'نشانی سند کلاینت و نشانی بازگشت CIMD باید یک جفت رسمی و هم‌خوان از ChatGPT باشند. تنظیمات قبلی حفظ شدند.',
-      }));
+      const enabled = params.get('mcp') === 'on';
+      const mode = params.get('serverAccess') ?? accessMode(params.get('mcpWrite') === 'on', params.get('mcpPublish') === 'on');
+      if (!Object.hasOwn(accessModes, mode)) return html(req, res, 422, mcpPage({ error: 'سطح دسترسی سرور معتبر نیست.' }));
+      const { writeAccess: mcpWrite, publishAccess: mcpPublish } = accessModes[mode];
       const requested = (params.get('mcpOrigins') || '').split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
       try {
         const mcpOrigins = [...new Set(requested.map(parseOrigin))];
-        const mcpDcrCallbacks = params.has('mcpDcrCallbacks') ? callbackList(params.get('mcpDcrCallbacks')) : status.mcpDcrCallbacks;
-        store.setSettings({ ...store.getSettings(), ...switches, mcpOrigins, mcpCimdClient, mcpCimdCallback, mcpDcrCallbacks });
+        const mcpDcrCallbacks = params.has('mcpDcrCallbacks') ? callbackList(params.get('mcpDcrCallbacks'), maxDcrCallbacks) : status.mcpDcrCallbacks;
+        store.setSettings({ ...store.getSettings(), mcp: enabled, mcpWrite, mcpPublish, mcpOrigins, mcpDcrCallbacks });
       } catch {
-        return html(req, res, 422, mcpPage({ settings: { ...status, ...switches, mcpOrigins: requested.slice(0,10) }, error: 'مبدأهای CORS یا callbackهای DCR معتبر نیستند. حداکثر ۱۰ مبدأ و ۱۰ callback دقیق HTTPS وارد کنید.' }));
+        return html(req, res, 422, mcpPage({ settings: { ...status, mcp: enabled, mcpWrite, mcpPublish, mcpOrigins: requested.slice(0,10) }, error: 'مبدأهای CORS یا callbackهای DCR معتبر نیستند. حداکثر ۱۰ مبدأ و ۱۱ callback دقیق HTTPS وارد کنید.' }));
       }
       return redirect(res, '/admin/system/mcp?notice=settings');
     }

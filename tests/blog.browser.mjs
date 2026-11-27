@@ -289,8 +289,8 @@ test('OAuth consent survives admin login and redirects safely to the registered 
     await signIn();
     await expect(page.getByRole('heading', { name: 'مدیریت مجله' })).toBeVisible();
     await page.goto(origin + '/admin/system/mcp');
-    await expect(page.getByLabel('نشانی سند کلاینت CIMD (Client ID URL)')).toHaveValue('https://chatgpt.com/oauth/client.json');
-    await expect(page.getByLabel('نشانی بازگشت CIMD (Callback URL)')).toHaveValue('https://chatgpt.com/connector_platform_oauth_redirect');
+    await expect(page.getByLabel(/callbackهای مجاز DCR/)).toHaveValue('https://chatgpt.com/connector_platform_oauth_redirect');
+    await expect(page.getByLabel('سقف دسترسی سرور MCP')).toHaveValue('full');
     await page.getByRole('link', { name: '＋ کلاینت جدید', exact: true }).click();
     await expect(page).toHaveURL(/connections\/new$/);
     await page.getByLabel('نام نمایشی کلاینت').fill('Browser MCP fixture');
@@ -301,9 +301,11 @@ test('OAuth consent survives admin login and redirects safely to the registered 
     await expect(page.getByText('Browser MCP fixture', { exact: true })).toBeVisible();
     await expect(page.getByLabel('نام نمایشی کلاینت')).toHaveCount(0);
     await page.getByText('تنظیم مجوزها و نشانی‌ها', { exact: true }).click();
-    await page.getByLabel('نوشتن و مدیریت رسانه').check();
+    await expect(page.getByLabel('سطح دسترسی کلاینت')).toHaveValue('full');
+    await page.getByLabel('سطح دسترسی کلاینت').selectOption('read');
     await page.getByRole('button', { name: 'ذخیرهٔ مجوزهای کلاینت' }).click();
     await expect(page.getByText('Browser MCP fixture', { exact: true })).toBeVisible();
+    await expect(page.getByText('فقط خواندن', { exact: true }).first()).toBeVisible();
     await page.context().clearCookies();
     const query = new URLSearchParams({ client_id: 'browser-test', redirect_uri: callback, response_type: 'code', state: 'browser-state',
       code_challenge: createHash('sha256').update('a'.repeat(43)).digest('base64url'), code_challenge_method: 'S256' });
