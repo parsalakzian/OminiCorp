@@ -16,7 +16,7 @@ export function openBlog(path, { seedContent = true } = {}) {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA busy_timeout=4000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (![0, 1, 2, 3, 4, 5, 6].includes(version)) { db.close(); throw new Error('Unsupported blog schema version'); }
+  if (![0, 1, 2, 3, 4, 5, 6, 7].includes(version)) { db.close(); throw new Error('Unsupported blog schema version'); }
   if (!version) db.exec(`BEGIN IMMEDIATE;
     CREATE TABLE articles (id INTEGER PRIMARY KEY, state TEXT NOT NULL CHECK(state IN ('draft','published')),
       section TEXT NOT NULL, fa_slug TEXT NOT NULL UNIQUE, en_slug TEXT NOT NULL UNIQUE,

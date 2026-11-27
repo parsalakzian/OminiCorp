@@ -172,7 +172,7 @@ test('RSS/Atom, bounded generation, proxy path, duplicate prevention, failures a
 });
 
 test('official MCP client initializes and enforces separate CRUD and publication capabilities', async (t) => {
-  const { store, url } = await fixture(t, { mcp: true });
+  const { store, url } = await fixture(t, { mcp: true, mcpWrite: false });
   assert.equal((await fetch(`${url}/mcp`, { method: 'POST' })).status, 401);
   assert.equal((await fetch(`${url}/mcp`, { method: 'POST', headers: { Origin: 'https://attacker.test', Authorization: `Bearer ${mcpKey}` } })).status, 403);
   const client = new Client({ name: 'integration-test', version: '1.0.0' });
@@ -452,7 +452,7 @@ test('bilingual category pages keep filters while paging, expose only published 
 });
 
 test('official MCP category CRUD and article assignment observe the publication permission', async (t) => {
-  const { store, url } = await fixture(t, { mcp: true, mcpWrite: true });
+  const { store, url } = await fixture(t, { mcp: true, mcpWrite: true, mcpPublish: false });
   const client = new Client({ name: 'category-integration', version: '1.0.0' });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${mcpKey}` } } }));
   const call = (name, args) => client.callTool({ name, arguments: args });
@@ -518,7 +518,7 @@ test('HTTPS import checks and pins public addresses, blocks private redirects, o
 test('MCP upload accepts public links and Base64 variants; binary endpoint handles files above the old cap', async (t) => {
   const importImage = createImageImporter({ resolve: async () => [{ address: '93.184.216.34', family: 4 }],
     open: async () => imageResponse(200, {}, [sampleImage()]) });
-  const { store, url } = await fixture(t, { mcp: true }, { importImage });
+  const { store, url } = await fixture(t, { mcp: true, mcpWrite: false }, { importImage });
   const auth = { Authorization: `Bearer ${mcpKey}` };
   const raw = (body, headers = auth) => fetch(url + '/mcp/media', { method: 'POST', body, headers: { 'Content-Type': 'application/octet-stream', ...headers } });
   assert.equal((await raw(sampleImage(), {})).status, 401);
@@ -825,7 +825,7 @@ test('login reaches a paginated dashboard with real SQLite categories and tolera
 });
 
 test('manually registered MCP OAuth works alongside Bearer, with consent, exact redirects, PKCE, refresh and revocation', async (t) => {
-  const { store, url } = await fixture(t, { mcp: true, mcpWrite: true, mcpPublish: true, mcpOrigins: ['http://localhost:6274'] });
+  const { store, url } = await fixture(t, { mcp: true, mcpWrite: true, mcpPublish: true, mcpOrigins: ['http://localhost:6274'], mcpDcrCallbacks: [] });
   const metadataPath = '/.well-known/oauth-protected-resource/mcp';
   const authPath = '/admin/oauth/authorize';
   const returnUri = 'http://localhost:6274/oauth/callback?existing=yes';
@@ -845,12 +845,12 @@ test('manually registered MCP OAuth works alongside Bearer, with consent, exact 
   const page = await fetch(url + '/admin/system/mcp', { headers: { cookie } });
   const csrf = (await page.text()).match(/name="csrf" value="([^"]+)"/)[1];
   const manage = '/admin/system/mcp/oauth';
-  const data = { csrf, name: 'MCP integration test', client_id: 'read-test', redirect_uri: returnUri, auth: 'none' };
+  const data = { csrf, name: 'MCP integration test', client_id: 'read-test', redirect_uri: returnUri, auth: 'none', access: 'read' };
   assert.equal((await submit(url, manage, { ...data, csrf: 'bad' }, { cookie })).status, 403);
   assert.equal((await submit(url, manage, { ...data, redirect_uri: 'https://app.example/callback#fragment' }, { cookie })).status, 422);
   assert.equal((await submit(url, manage, data, { cookie })).status, 303);
   assert.equal((await submit(url, manage, data, { cookie })).status, 409);
-  assert.equal((await submit(url, manage, { ...data, client_id: 'write-test', auth: 'client_secret_basic', writeAccess: 'on' }, { cookie })).status, 303);
+  assert.equal((await submit(url, manage, { ...data, client_id: 'write-test', auth: 'client_secret_basic', access: 'write' }, { cookie })).status, 303);
   const secretPage = await (await fetch(url + '/admin/system/mcp/connections', { headers: { cookie } })).text();
   const secret = secretPage.match(/data-oauth-reveal[^]*?<input readonly dir="ltr" value="([^"]+)"/)[1];
   assert.ok(!((await (await fetch(url + '/admin/system/mcp/connections', { headers: { cookie } })).text()).includes(secret)));
@@ -931,152 +931,70 @@ test('manually registered MCP OAuth works alongside Bearer, with consent, exact 
   assert.equal((await rpc(writer.access_token)).status, 404);
 });
 
-test('ChatGPT discovers CIMD and DCR, exchanges with issuer-bound callback, and lists authenticated tools without changing fixed Bearer', async (t) => {
-  const cid = 'https://chatgpt.com/oauth/client.json';
+test('unified default DCR callback and full access work, while restrictions affect the same token immediately', async (t) => {
   const callback = 'https://chatgpt.com/connector_platform_oauth_redirect';
   const issuerPath = '/.well-known/oauth-authorization-server';
-  let downloads = 0;
-  const { store, url } = await fixture(t, { mcp: true, mcpWrite: true, mcpPublish: true }, {
-    fetchOAuthDocument: async (input, init) => {
-      assert.equal(input, cid);
-      assert.equal(init.redirect, 'error');
-      assert.ok(init.signal instanceof AbortSignal);
-      downloads++;
-      return Response.json({ client_id: cid, redirect_uris: [callback], token_endpoint_auth_method: 'private_key_jwt',
-        token_endpoint_auth_methods_supported: ['none', 'private_key_jwt'], response_types: ['code'],
-        grant_types: ['authorization_code', 'refresh_token', 'urn:ietf:params:oauth:grant-type:jwt-bearer'] });
-    },
-  });
-  const register = (data) => fetch(url + '/oauth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-  assert.equal((await register({ redirect_uris: [callback] })).status, 404);
-  const login = await submit(url, '/admin/login', { password: adminPassword });
-  const cookie = login.headers.get('set-cookie').split(';')[0];
-  const panel = await fetch(url + '/admin/system/mcp', { headers: { cookie } });
-  const csrf = (await panel.text()).match(/name="csrf" value="([^"]+)"/)[1];
-  assert.equal((await submit(url, '/admin/system/mcp', { csrf, mcp: 'on', mcpWrite: 'on', mcpPublish: 'on', mcpChatGPT: 'on' }, { cookie })).status, 303);
+  const { store, url } = await fixture(t, { mcp: true });
   const metadata = await (await fetch(url + issuerPath)).json();
-  assert.equal(metadata.client_id_metadata_document_supported, true);
-  assert.equal(metadata.authorization_response_iss_parameter_supported, true);
+  assert.equal(metadata.client_id_metadata_document_supported, undefined);
   assert.equal(metadata.registration_endpoint, origin + '/oauth/register');
-  assert.ok(metadata.token_endpoint_auth_methods_supported.includes('none'));
-  assert.equal((await register({ redirect_uris: [callback + '?q=other'] })).status, 400);
-  assert.equal((await register({ redirect_uris: ['https://not-chatgpt.example/callback'] })).status, 400);
-  assert.equal((await register({ redirect_uris: [callback], grant_types: ['client_credentials'] })).status, 400);
-  const registered = await register({ redirect_uris: [callback], token_endpoint_auth_method: 'client_secret_post', grant_types: ['authorization_code','refresh_token'] });
+  const registered = await fetch(url + '/oauth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ redirect_uris: [callback], client_name: 'ChatGPT', token_endpoint_auth_method: 'none' }) });
   assert.equal(registered.status, 201);
   const dcr = await registered.json();
-  assert.equal(store.oauth.getClient(dcr.client_id).secret, tokenHash(dcr.client_secret));
-  assert.deepEqual(dcr.redirect_uris, [callback]);
-  const resource = origin + '/mcp';
-  const verifier = 'v'.repeat(43);
-  const query = (clientId) => new URLSearchParams({ client_id: clientId, redirect_uri: callback, response_type: 'code', resource,
-    scope: 'mcp', state: 'chatgpt-state', code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
-  const authPath = '/admin/oauth/authorize';
-  assert.equal((await fetch(url + authPath + '?' + query('https://internal.example/client.json'), { headers: { cookie } })).status, 400);
-  assert.equal(downloads, 0);
-  async function consent(clientId, decision) {
-    const params = query(clientId);
-    const consent = await fetch(url + authPath + '?' + params, { headers: { cookie } });
-    assert.equal(consent.status, 200);
-    const response = await submit(url, authPath, { csrf, request: `${params}`, decision }, { cookie });
-    assert.equal(response.status, 303);
-    const location = new URL(response.headers.get('location'));
-    assert.equal(location.origin + location.pathname, callback);
-    assert.equal(location.searchParams.get('state'), 'chatgpt-state');
-    assert.equal(location.searchParams.get('iss'), metadata.issuer);
-    if (decision === 'deny') assert.equal(location.searchParams.get('error'), 'access_denied');
-    return location.searchParams.get('code');
-  }
-  const tools = async (bearer) => {
-    const res = await fetch(url + '/mcp', { method: 'POST', headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 1 }) });
-    assert.equal(res.status, 200);
-    return (await res.json()).result.tools;
-  };
-  let access;
-  for (const [clientId, secret] of [[cid, undefined], [dcr.client_id, dcr.client_secret]]) {
-    assert.equal(await consent(clientId, 'deny'), null);
-    const code = await consent(clientId, 'allow');
-    const token = await submit(url, '/oauth/token', { client_id: clientId, ...(secret ? { client_secret: secret } : {}), grant_type: 'authorization_code',
-      code, redirect_uri: callback, resource, code_verifier: verifier });
-    assert.equal(token.status, 200);
-    access = (await token.json()).access_token;
-    const list = await tools(access);
-    assert.ok(!list.some(({ name }) => name === 'upload_image'));
-    assert.deepEqual(list.find(({ name }) => name === 'list_articles')._meta.securitySchemes, [{ type: 'oauth2', scopes: ['mcp'] }]);
-  }
-  assert.equal(downloads, 1);
-  const permissions = '/admin/system/mcp/oauth/access';
-  const grant = { csrf, client_id: dcr.client_id, writeAccess: 'on', publishAccess: 'on' };
-  assert.equal((await submit(url, permissions, { ...grant, csrf: 'bad' }, { cookie })).status, 403);
-  assert.equal((await submit(url, permissions, { ...grant, client_id: cid }, { cookie })).status, 303);
-  assert.equal((await submit(url, permissions, grant, { cookie })).status, 303);
-  assert.ok((await tools(access)).some(({ name }) => name === 'upload_image'));
-  assert.ok((await tools(access)).some(({ name }) => name === 'create_category'));
-  const writer = new Client({ name: 'DCR access test', version: '1.0.0' });
-  await writer.connect(new StreamableHTTPClientTransport(new URL(url + '/mcp'), { requestInit: { headers: { Authorization: `Bearer ${access}` } } }));
-  try {
-    const created = await writer.callTool({ name: 'create_category', arguments: { category } });
-    assert.equal(created.structuredContent.category.slug, category.slug);
-    store.setSettings({ ...store.getSettings(), mcpPublish: false });
-    assert.ok(!(await tools(access)).some(({ name }) => name === 'create_category'));
-    store.setSettings({ ...store.getSettings(), mcpPublish: true });
-    assert.equal((await submit(url, permissions, { csrf, client_id: dcr.client_id, publishAccess: 'on' }, { cookie })).status, 303);
-    assert.equal(store.oauth.getClient(dcr.client_id).publishAccess, 0);
-    assert.ok(!(await tools(access)).some(({ name }) => name === 'upload_image'));
-  } finally { await writer.close(); }
-  assert.ok((await tools(mcpKey)).some(({ name }) => name === 'upload_image'));
-  store.setSettings({ ...store.getSettings(), mcpChatGPT: false });
-  assert.equal((await fetch(url + issuerPath)).status, 404);
-  assert.equal((await fetch(url + '/mcp', { method: 'POST', headers: { Authorization: `Bearer ${access}` } })).status, 401);
-  assert.ok((await tools(mcpKey)).some(({ name }) => name === 'upload_image'));
-});
-
-test('CIMD rejects invalid documents repeatedly without allowing a negative cache to register a client', async (t) => {
-  let calls = 0;
-  const { store, url } = await fixture(t, { mcp: true, mcpChatGPT: true }, { fetchOAuthDocument: async () => { calls++; return Response.json({ redirect_uris: [] }); } });
-  const path = '/admin/oauth/authorize?' + new URLSearchParams({ client_id: 'https://chatgpt.com/oauth/client.json',
-    redirect_uri: 'https://chatgpt.com/connector_platform_oauth_redirect', response_type: 'code', code_challenge: 'a'.repeat(43), code_challenge_method: 'S256' });
-  assert.equal((await fetch(url + path, { redirect: 'manual' })).status, 400);
-  assert.equal((await fetch(url + path, { redirect: 'manual' })).status, 400);
-  assert.equal(calls, 1);
-  assert.equal(store.oauth.countClients('cimd'), 0);
-});
-
-test('configured CIMD pair is editable and bound to the matching official ChatGPT callback without changing DCR', async (t) => {
-  const id = 'https://chatgpt.com/oauth/callback-123/client.json';
-  const callback = 'https://chatgpt.com/connector/oauth/callback-123';
-  const stableCallback = 'https://chatgpt.com/connector_platform_oauth_redirect';
-  const seen = [];
-  const { store, url } = await fixture(t, { mcp: true, mcpChatGPT: true }, { fetchOAuthDocument: async (input) => {
-    seen.push(input);
-    return Response.json({ client_id: id, redirect_uris: [callback], response_types: ['code'], grant_types: ['authorization_code'], token_endpoint_auth_method: 'none' });
-  } });
   const login = await submit(url, '/admin/login', { password: adminPassword });
   const cookie = login.headers.get('set-cookie').split(';')[0];
-  const page = await (await fetch(url + '/admin/system/mcp', { headers: { cookie } })).text();
-  assert.match(page, /name="mcpCimdClient" value="https:\/\/chatgpt\.com\/oauth\/client\.json"/);
-  assert.match(page, /name="mcpCimdCallback" value="https:\/\/chatgpt\.com\/connector_platform_oauth_redirect"/);
-  const csrf = page.match(/name="csrf" value="([^"]+)"/)[1];
-  const update = (client, redirect) => submit(url, '/admin/system/mcp', { csrf, mcp: 'on', mcpChatGPT: 'on', mcpCimdClient: client, mcpCimdCallback: redirect }, { cookie });
-  assert.equal((await update(id, stableCallback)).status, 422);
-  assert.equal((await update('https://other.example/oauth/callback-123/client.json', callback)).status, 422);
-  assert.equal((await update(id, callback)).status, 303);
-  assert.equal(store.getSettings().mcpCimdClient, id);
-  const auth = '/admin/oauth/authorize';
-  const verifier = 'a'.repeat(43);
-  const params = new URLSearchParams({ client_id: id, redirect_uri: callback, response_type: 'code', code_challenge_method: 'S256', code_challenge: createHash('sha256').update(verifier).digest('base64url') });
-  const consent = await fetch(url + auth + '?' + params, { headers: { cookie } });
-  assert.equal(consent.status, 200);
-  assert.ok((await consent.text()).includes(callback));
-  const approved = await submit(url, auth, { csrf, request: String(params), decision: 'allow' }, { cookie });
-  const location = new URL(approved.headers.get('location'));
-  assert.equal(location.origin + location.pathname, callback);
-  const token = await submit(url, '/oauth/token', { client_id: id, redirect_uri: callback, grant_type: 'authorization_code', code: location.searchParams.get('code'), code_verifier: verifier });
-  assert.equal(token.status, 200);
-  assert.deepEqual(seen, [id]);
-  const dcr = await fetch(url + '/oauth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ redirect_uris: [stableCallback] }) });
-  assert.equal(dcr.status, 201);
+  const base = '/admin/system/mcp';
+  const settings = await (await fetch(url + base, { headers: { cookie } })).text();
+  assert.doesNotMatch(settings, /CIMD|mcpChatGPT/);
+  assert.ok(settings.includes(callback));
+  const csrf = settings.match(/name="csrf" value="([^"]+)"/)[1];
+  const verifier = 'x'.repeat(60);
+  const authPath = '/admin/oauth/authorize';
+  const params = new URLSearchParams({ client_id: dcr.client_id, redirect_uri: callback, response_type: 'code', state: 'dcr-fixture-state', code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
+  for (const decision of ['deny', 'allow']) {
+    const consent = await fetch(url + authPath + '?' + params, { headers: { cookie } });
+    assert.equal(consent.status, 200);
+    const approved = await submit(url, authPath, { csrf, request: String(params), decision }, { cookie });
+    const redirect = new URL(approved.headers.get('location'));
+    assert.equal(redirect.origin + redirect.pathname, callback);
+    assert.equal(redirect.searchParams.get('iss'), origin);
+    assert.equal(redirect.searchParams.get('state'), 'dcr-fixture-state');
+    if (decision === 'deny') { assert.equal(redirect.searchParams.get('error'), 'access_denied'); continue; }
+    const response = await submit(url, '/oauth/token', { client_id: dcr.client_id, redirect_uri: callback, grant_type: 'authorization_code', code: redirect.searchParams.get('code'), code_verifier: verifier });
+    assert.equal(response.status, 200);
+    const { access_token } = await response.json();
+    const client = new Client({ name: 'dcr-access-test', version: '1.0.0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(url + '/mcp'), { requestInit: { headers: { Authorization: `Bearer ${access_token}` } } }));
+    const names = async () => (await client.listTools()).tools.map(({ name }) => name);
+    const edit = (access) => submit(url, base + '/oauth/access', { csrf, client_id: dcr.client_id, access }, { cookie });
+    try {
+      assert.ok((await names()).includes('publish_article'));
+      assert.ok((await names()).includes('upload_image'));
+      assert.equal((await submit(url, base + '/oauth/access', { csrf: 'invalid', client_id: dcr.client_id, access: 'read' }, { cookie })).status, 403);
+      assert.equal((await edit('bad-level')).status, 422);
+      assert.equal((await edit('read')).status, 303);
+      assert.ok(!(await names()).includes('upload_image'));
+      const denied = await client.callTool({ name: 'create_category', arguments: { category } }).catch(() => ({ isError: true }));
+      assert.equal(denied.isError, true);
+      assert.equal((await edit('write')).status, 303);
+      assert.ok((await names()).includes('upload_image'));
+      assert.ok(!(await names()).includes('publish_article'));
+      assert.equal((await submit(url, base + '/oauth/full', { csrf }, { cookie })).status, 422);
+      assert.equal((await submit(url, base + '/oauth/full', { csrf, confirm: 'on' }, { cookie })).status, 303);
+      assert.ok((await names()).includes('publish_article'));
+      const created = await client.callTool({ name: 'create_category', arguments: { category } });
+      assert.equal(created.structuredContent.category.slug, category.slug);
+      assert.equal((await submit(url, base, { csrf, mcp: 'on', serverAccess: 'read' }, { cookie })).status, 303);
+      assert.ok(!(await names()).includes('upload_image'));
+      assert.match(await (await fetch(url + base + '/connections', { headers: { cookie } })).text(), /سقف سرور محدود شده/);
+      assert.equal((await submit(url, base, { csrf, mcp: 'on', serverAccess: 'full' }, { cookie })).status, 303);
+      assert.ok((await names()).includes('publish_article'));
+      assert.equal((await submit(url, base, { csrf, mcp: 'on', serverAccess: 'full', mcpDcrCallbacks: '' }, { cookie })).status, 303);
+      const revoked = await fetch(url + '/mcp', { method: 'POST', headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+      assert.ok([401, 404].includes(revoked.status));
+    } finally { await client.close(); }
+  }
+  assert.equal((await fetch(url + issuerPath)).status, 404);
 });
 
 test('manual OAuth exchanges across Basic and POST, uses multiple exact callbacks, changes grants live and rotates credentials', async (t) => {
@@ -1113,6 +1031,8 @@ test('manual OAuth exchanges across Basic and POST, uses multiple exact callback
   const rpc = async (access) => fetch(url + '/mcp', { method: 'POST', headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
   const names = async () => (await (await rpc(creds.access_token)).json()).result.tools.map(({ name }) => name);
+  assert.ok((await names()).includes('publish_article'));
+  assert.equal((await submit(url, base + '/oauth/access', { csrf, client_id: id, access: 'read' }, { cookie })).status, 303);
   assert.ok(!(await names()).includes('upload_image'));
   assert.equal((await submit(url, base + '/oauth/access', { csrf, client_id: id, writeAccess: 'on', publishAccess: 'on' }, { cookie })).status, 303);
   assert.ok((await names()).includes('create_category'));
@@ -1123,7 +1043,7 @@ test('manual OAuth exchanges across Basic and POST, uses multiple exact callback
   assert.equal((await submit(url, '/oauth/token', { grant_type: 'refresh_token', refresh_token: creds.refresh_token, client_id: id, client_secret: secret })).status, 400);
 });
 
-test('generic DCR registers only exact administrator-approved callbacks, separate from ChatGPT', async (t) => {
+test('DCR registers only exact administrator-approved callbacks', async (t) => {
   const { store, url } = await fixture(t, { mcp: true });
   const callback = 'https://connector.example/callback';
   const secondary = 'https://connector.example/alternate';
@@ -1144,7 +1064,7 @@ test('generic DCR registers only exact administrator-approved callbacks, separat
   assert.equal(accepted.status, 201);
   const identity = await accepted.json();
   assert.deepEqual(identity.redirect_uris, [callback, secondary]);
-  assert.equal(store.oauth.getClient(identity.client_id).writeAccess, 0);
+  assert.equal(store.oauth.getClient(identity.client_id).writeAccess, 1);
   const auth = '/admin/oauth/authorize?' + new URLSearchParams({ client_id: identity.client_id, redirect_uri: secondary, response_type: 'code', code_challenge: 'a'.repeat(43), code_challenge_method: 'S256' });
   assert.equal((await fetch(url + auth, { headers: { cookie } })).status, 200);
   assert.equal((await update(callback)).status, 303);
@@ -1168,6 +1088,33 @@ test('migration from the previous OAuth schema preserves clients and live grant 
       assert.equal(store.oauth.getClient('prior-dcr').writeAccess, 1);
       assert.equal(store.oauth.getClient('prior-dcr').redirects, '[]');
       assert.equal(store.oauth.getGrant(key, 'code', Date.now()).client_id, 'prior-dcr');
+    } finally { store.close(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('migration removes retired OAuth clients and their grants, adds default DCR callback and respects stored restrictions', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'omini-mcp-unified-'));
+  const file = join(dir, 'blog.sqlite');
+  const callback = 'https://chatgpt.com/connector_platform_oauth_redirect';
+  try {
+    let store = openBlog(file);
+    store.oauth.addClient({ id: 'old-client-doc', name: 'Retired adapter', redirect: callback, auth: 'none', secret: '', writeAccess: true, publishAccess: true, kind: 'cimd' });
+    store.oauth.addClient({ id: 'old-dcr', name: 'Existing DCR', redirect: callback, auth: 'none', secret: '', writeAccess: false, publishAccess: false, kind: 'dcr' });
+    for (const id of ['old-client-doc', 'old-dcr']) store.oauth.putCode({ hash: `stored-${id}`, client_id: id, kind: 'code', expires: Date.now() + 60000, resource: origin + '/mcp', owner_hash: 'fixture', flow: id }, Date.now());
+    store.setSettings({ ...store.getSettings(), mcpWrite: false, mcpPublish: false, mcpDcrCallbacks: ['https://partner.example/callback'] });
+    store.close();
+    const db = new DatabaseSync(file);
+    db.exec("UPDATE metadata SET value=json_set(value,'$.mcpChatGPT',true,'$.mcpCimdClient','old-client-doc') WHERE key='settings'; PRAGMA user_version=6;");
+    db.close();
+    store = openBlog(file);
+    try {
+      assert.equal(store.oauth.getClient('old-client-doc'), undefined);
+      assert.equal(store.oauth.getGrant('stored-old-client-doc', 'code', Date.now()), undefined);
+      assert.equal(store.oauth.getClient('old-dcr').writeAccess, 0);
+      assert.equal(store.oauth.getGrant('stored-old-dcr', 'code', Date.now()).client_id, 'old-dcr');
+      assert.deepEqual(store.getSettings().mcpDcrCallbacks, [callback, 'https://partner.example/callback']);
+      assert.equal(store.getSettings().mcpWrite, false);
+      assert.equal(store.getSettings().mcpCimdClient, undefined);
     } finally { store.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
