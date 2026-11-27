@@ -10,7 +10,14 @@ const { values } = parseArgs({ options: { port: { type: 'string', default: '4173
 const port = Number(values.port);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid --port');
 const subscribers = openSubscribers('data/subscribers.sqlite');
-const blog = createBlog();
+// Keep auth diagnostics useful without logging unbounded traffic or credentials.
+let windowEnd = 0, events = 0;
+const blog = createBlog({ reportMcp(stage, outcome) {
+  const now = Date.now();
+  if (now >= windowEnd) { windowEnd = now + 60000; events = 0; }
+  if (++events <= 120) console.info(`[mcp] ${stage} ${outcome}`);
+  else if (events === 121) console.info('[mcp] further events suppressed for this minute');
+} });
 const server = createApp({}, { store: subscribers, blog, mailSettings: () => smtpConfig(blog.store.getSystem()), mailFactory: createMailer });
 const cleanup = setInterval(() => {
   try { subscribers.purgeExpired(); } catch { console.error('Subscriber expiry cleanup failed'); }

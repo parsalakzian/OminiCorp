@@ -67,8 +67,10 @@ export function createBlog(options = {}) {
   const automation = options.automation || createAutomation(store, options.network);
   const sessions = new Map(), loginAttempts = new Map();
   let loginWindow = 0, totalAttempts = 0, pending, activeChecks = 0;
-  const oauth = createOAuth(store, read);
-  const mcp = createMcpHttp({ store, oauth, automation, readBytes, importImage: options.importImage || createImageImporter() });
+  // Only fixed outcome labels are passed to the logger, never OAuth input or headers.
+  const report = options.reportMcp;
+  const oauth = createOAuth(store, read, report);
+  const mcp = createMcpHttp({ store, oauth, automation, readBytes, report, importImage: options.importImage || createImageImporter() });
   const setCookie = (res, value, age, origin) => res.setHeader('Set-Cookie', `${cookieName}=${value}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${age}${origin.startsWith('https:') ? '; Secure' : ''}`);
   function originAllowed(req, origin) {
     if (['cross-site', 'same-site'].includes(req.headers['sec-fetch-site'])) return false;
@@ -111,7 +113,10 @@ export function createBlog(options = {}) {
     const home = '/admin';
     const mcpSettings = '/admin/system/mcp';
     const mcpPage = (props = {}) => mcpSettingsPage({ origin, csrf: session.csrf, system, settings: store.getSettings(), navigation: mcpNavigation('settings'), endpoints: endpointCard(origin), ...props });
-    if (method === 'POST' && !originAllowed(req, origin)) return res.writeHead(403).end();
+    if (method === 'POST' && !originAllowed(req, origin)) {
+      if (path === authorizePath) report?.('authorize', 'origin_denied');
+      return res.writeHead(403).end();
+    }
     const readOnly = method === 'GET' || method === 'HEAD';
     if (path === '/admin/setup') {
       if (owner) return redirect(res, logged ? home : '/admin/login');
@@ -161,13 +166,19 @@ export function createBlog(options = {}) {
       const pending = localOAuthReturn(path + url.search);
       const candidate = pending && oauth.authRequest(url.searchParams);
       if (!candidate) return res.writeHead(400).end('Invalid OAuth authorization request. Check the registered Client ID, exact Redirect URI, PKCE S256, scope mcp and the MCP resource URL.');
-      if (!logged) return redirect(res, '/admin/login?' + new URLSearchParams({ next: pending }));
+      if (!logged) {
+        report?.('authorize', 'login_required');
+        return redirect(res, '/admin/login?' + new URLSearchParams({ next: pending }));
+      }
       // Chromium may enforce form-action on the POST's OAuth redirect as well.
       const callbackOrigin = new URL(candidate.redirect).origin;
       res.setHeader('Content-Security-Policy', res.getHeader('Content-Security-Policy').replace("form-action 'self'", `form-action 'self' ${callbackOrigin}`));
       return html(req, res, 200, consentPage(origin, session.csrf, candidate.client, candidate.redirect, url.search.slice(1), store.getSettings()));
     }
-    if (!logged) return redirect(res, '/admin/login');
+    if (!logged) {
+      if (path === authorizePath) report?.('authorize', 'session_expired');
+      return redirect(res, '/admin/login');
+    }
     const csrf = session.csrf;
     const note = url.searchParams.get('notice');
     const issue = Object.hasOwn(notices, note) ? notices[note] : undefined;
@@ -244,7 +255,10 @@ export function createBlog(options = {}) {
     const raw = await read(req, 600000);
     if (raw === null) return res.writeHead(413).end();
     const params = new URLSearchParams(raw);
-    if (!equal(params.get('csrf'), csrf)) return res.writeHead(403).end();
+    if (!equal(params.get('csrf'), csrf)) {
+      if (path === authorizePath) report?.('authorize', 'csrf_rejected');
+      return res.writeHead(403).end();
+    }
     if (path === authorizePath) {
       const request = params.get('request');
       const decision = params.get('decision');

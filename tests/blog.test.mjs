@@ -934,11 +934,12 @@ test('manually registered MCP OAuth works alongside Bearer, with consent, exact 
 test('unified default DCR callback and full access work, while restrictions affect the same token immediately', async (t) => {
   const callback = 'https://chatgpt.com/connector_platform_oauth_redirect';
   const issuerPath = '/.well-known/oauth-authorization-server';
-  const { store, url } = await fixture(t, { mcp: true });
+  const events = [];
+  const { url } = await fixture(t, { mcp: true }, { reportMcp: (...event) => events.push(event.join(' ')) });
   const metadata = await (await fetch(url + issuerPath)).json();
   assert.equal(metadata.client_id_metadata_document_supported, undefined);
   assert.equal(metadata.registration_endpoint, origin + '/oauth/register');
-  const registered = await fetch(url + '/oauth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ redirect_uris: [callback], client_name: 'ChatGPT', token_endpoint_auth_method: 'none' }) });
+  const registered = await fetch(url + '/oauth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ redirect_uris: [callback], client_name: 'ChatGPT', token_endpoint_auth_method: 'client_secret_post' }) });
   assert.equal(registered.status, 201);
   const dcr = await registered.json();
   const login = await submit(url, '/admin/login', { password: adminPassword });
@@ -950,7 +951,9 @@ test('unified default DCR callback and full access work, while restrictions affe
   const csrf = settings.match(/name="csrf" value="([^"]+)"/)[1];
   const verifier = 'x'.repeat(60);
   const authPath = '/admin/oauth/authorize';
-  const params = new URLSearchParams({ client_id: dcr.client_id, redirect_uri: callback, response_type: 'code', state: 'dcr-fixture-state', code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
+  const resource = origin + '/mcp';
+  const params = new URLSearchParams({ client_id: dcr.client_id, redirect_uri: callback, response_type: 'code', resource, state: 'dcr-fixture-state', code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
+  assert.equal((await fetch(url + authPath + '?' + new URLSearchParams({ ...Object.fromEntries(params), client_id: 'stale-dcr-client' }))).status, 400);
   for (const decision of ['deny', 'allow']) {
     const consent = await fetch(url + authPath + '?' + params, { headers: { cookie } });
     assert.equal(consent.status, 200);
@@ -960,9 +963,14 @@ test('unified default DCR callback and full access work, while restrictions affe
     assert.equal(redirect.searchParams.get('iss'), origin);
     assert.equal(redirect.searchParams.get('state'), 'dcr-fixture-state');
     if (decision === 'deny') { assert.equal(redirect.searchParams.get('error'), 'access_denied'); continue; }
-    const response = await submit(url, '/oauth/token', { client_id: dcr.client_id, redirect_uri: callback, grant_type: 'authorization_code', code: redirect.searchParams.get('code'), code_verifier: verifier });
+    const exchange = { client_id: dcr.client_id, redirect_uri: callback, resource, grant_type: 'authorization_code', code: redirect.searchParams.get('code'), code_verifier: verifier };
+    assert.equal((await submit(url, '/oauth/token', exchange)).status, 400);
+    const response = await submit(url, '/oauth/token', { ...exchange, client_secret: dcr.client_secret });
     assert.equal(response.status, 200);
     const { access_token } = await response.json();
+    const unauthenticated = await fetch(url + '/mcp', { method: 'POST' });
+    assert.equal(unauthenticated.status, 401);
+    assert.ok(unauthenticated.headers.get('www-authenticate').includes(origin + '/.well-known/oauth-protected-resource/mcp'));
     const client = new Client({ name: 'dcr-access-test', version: '1.0.0' });
     await client.connect(new StreamableHTTPClientTransport(new URL(url + '/mcp'), { requestInit: { headers: { Authorization: `Bearer ${access_token}` } } }));
     const names = async () => (await client.listTools()).tools.map(({ name }) => name);
@@ -995,6 +1003,9 @@ test('unified default DCR callback and full access work, while restrictions affe
     } finally { await client.close(); }
   }
   assert.equal((await fetch(url + issuerPath)).status, 404);
+  assert.deepEqual(events.slice(0, 9), ['register created', 'authorize unknown_client', 'authorize denied', 'authorize code_issued', 'token client_auth_method_mismatch', 'token code_exchanged', 'transport missing_bearer', 'initialize 200', 'tools_list 200']);
+  const log = events.join('\n');
+  for (const privateValue of [dcr.client_id, dcr.client_secret, verifier, callback, 'dcr-fixture-state', 'stale-dcr-client']) assert.ok(!log.includes(privateValue));
 });
 
 test('manual OAuth exchanges across Basic and POST, uses multiple exact callbacks, changes grants live and rotates credentials', async (t) => {
