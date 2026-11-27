@@ -289,6 +289,8 @@ test('OAuth consent survives admin login and redirects safely to the registered 
     await signIn();
     await expect(page.getByRole('heading', { name: 'مدیریت مجله' })).toBeVisible();
     await page.goto(origin + '/admin/system/mcp');
+    await expect(page.getByLabel('نشانی سند کلاینت CIMD (Client ID URL)')).toHaveValue('https://chatgpt.com/oauth/client.json');
+    await expect(page.getByLabel('نشانی بازگشت CIMD (Callback URL)')).toHaveValue('https://chatgpt.com/connector_platform_oauth_redirect');
     await page.getByLabel('نام نمایشی کلاینت').fill('Browser MCP fixture');
     await page.getByLabel('شناسهٔ کلاینت (Client ID)').fill('browser-test');
     await page.getByLabel('نشانی بازگشت (Redirect URI)').fill(callback);

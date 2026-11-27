@@ -1,4 +1,4 @@
-import { chatgptClientId, chatgptRedirect, createChatGPTRegistration, registrationPath } from './oauth-chatgpt.mjs';
+import { createChatGPTRegistration, registrationPath } from './oauth-chatgpt.mjs';
 import { constantEqual, digest, makeKey, parseOrigin, tokenHash } from '../installation.mjs';
 
 export const authorizePath = '/admin/oauth/authorize';
@@ -39,7 +39,9 @@ export function createOAuth(store, read, fetchDocument) {
   const enabled = () => store.getSettings().mcp && (db.countClients('manual') > 0 || chatgpt.enabled());
   const getClient = (id) => {
     const client = db.getClient(id);
-    return client?.kind === 'manual' || chatgpt.enabled() ? client : undefined;
+    if (!client || client.kind === 'manual') return client;
+    if (!chatgpt.enabled() || (client.kind === 'cimd' && !chatgpt.matchesCimd(client.id, client.redirect))) return undefined;
+    return client;
   };
   const header = () => enabled() ? `, resource_metadata="${system()}${resourceMetadata}", scope="${scope}"` : '';
   const live = (grant) => grant && grant.owner_hash === store.getOwner()?.hash && grant.resource === resourceFor(system());
@@ -57,7 +59,7 @@ export function createOAuth(store, read, fetchDocument) {
     const resource = params.get('resource') ?? resourceFor(system());
     if (resource !== resourceFor(system()) || (state !== null && (state.length === 0 || state.length > 1024)) ||
       !keyPattern.test(challenge || '') || params.get('code_challenge_method') !== 'S256' || params.get('response_type') !== 'code' || (params.get('scope') ?? scope) !== scope) return null;
-    const client = id === chatgptClientId && redirect === chatgptRedirect ? await chatgpt.resolveCimd() : getClient(id || '');
+    const client = chatgpt.matchesCimd(id, redirect) ? await chatgpt.resolveCimd(id, redirect) : getClient(id || '');
     if (!enabled() || !client || client.redirect !== redirect) return null;
     return { client, redirect, challenge, resource, state };
   };
@@ -134,7 +136,7 @@ export function createOAuth(store, read, fetchDocument) {
       secret = new URLSearchParams(`x=${parts[1]}`).get('x');
       method = 'client_secret_basic';
     }
-    const client = (id === chatgptClientId || clientId.test(id || '')) && getClient(id);
+    const client = id && id.length <= 240 && getClient(id);
     if (!client || client.auth !== method || (method !== 'none' && !constantEqual(tokenHash(secret), client.secret))) {
       if (method === 'client_secret_basic') res.setHeader('WWW-Authenticate', 'Basic realm="OminiCorp OAuth"');
       return reject(res, method === 'client_secret_basic' ? 401 : 400, 'invalid_client');

@@ -1,3 +1,4 @@
+import { validChatGPTPair } from './oauth-chatgpt.mjs';
 import { authorizePath, createOAuth, localOAuthReturn, oauthClient } from './oauth.mjs';
 import { consentPage, oauthPanel } from './oauth-admin.mjs';
 import { checkPassword, constantEqual as equal, makeKey as random, parseOrigin, passwordRecord, tokenHash, updateAiSecrets, updateSystem, validPassword } from '../installation.mjs';
@@ -246,10 +247,12 @@ export function createBlog(options = {}) {
       if (sessions.get(token) !== session || session.expires <= Date.now() || store.getOwner()?.hash !== owner.hash) return res.writeHead(403).end();
       return oauth.authorize(res, candidate, decision === 'deny', owner);
     }
-    if (path === `${mcpSettings}/oauth` || path === `${mcpSettings}/oauth/remove`) {
+    if ([`${mcpSettings}/oauth`, `${mcpSettings}/oauth/remove`, `${mcpSettings}/oauth/access`].includes(path)) {
       if (sessions.get(token) !== session || session.expires <= Date.now() || store.getOwner()?.hash !== owner.hash) return res.writeHead(403).end();
       if (path.endsWith('/remove')) {
         if (!store.oauth.removeClient(params.get('client_id') || '')) return res.writeHead(404).end();
+      } else if (path.endsWith('/access')) {
+        if (!store.oauth.setDcrAccess(params.get('client_id') || '', params.get('writeAccess') === 'on', params.get('publishAccess') === 'on')) return res.writeHead(404).end();
       } else {
         let value;
         try { value = oauthClient(params); } catch { return html(req, res, 422, mcpPage({ error: 'شناسه، روش احراز هویت و نشانی بازگشت دقیق کلاینت را بررسی کنید.' })); }
@@ -293,10 +296,15 @@ export function createBlog(options = {}) {
     }
     if (path === '/admin/system/mcp') {
       const switches = Object.fromEntries(['mcp', 'mcpWrite', 'mcpPublish', 'mcpChatGPT'].map((key) => [key, params.get(key) === 'on']));
+      const mcpCimdClient = params.get('mcpCimdClient')?.trim() ?? status.mcpCimdClient;
+      const mcpCimdCallback = params.get('mcpCimdCallback')?.trim() ?? status.mcpCimdCallback;
+      if (!validChatGPTPair(mcpCimdClient, mcpCimdCallback)) return html(req, res, 422, mcpPage({
+        error: 'نشانی سند کلاینت و نشانی بازگشت CIMD باید یک جفت رسمی و هم‌خوان از ChatGPT باشند. تنظیمات قبلی حفظ شدند.',
+      }));
       const requested = (params.get('mcpOrigins') || '').split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
       try {
         const mcpOrigins = [...new Set(requested.map(parseOrigin))];
-        store.setSettings({ ...store.getSettings(), ...switches, mcpOrigins });
+        store.setSettings({ ...store.getSettings(), ...switches, mcpOrigins, mcpCimdClient, mcpCimdCallback });
       } catch {
         return html(req, res, 422, mcpPage({ settings: { ...status, ...switches, mcpOrigins: requested.slice(0,10) }, error: 'حداکثر ۱۰ مبدأ معتبر وارد کنید: HTTPS یا HTTP روی localhost؛ بدون مسیر یا ستاره.' }));
       }
