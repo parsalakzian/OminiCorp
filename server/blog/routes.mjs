@@ -64,7 +64,7 @@ export function createBlog(options = {}) {
   const automation = options.automation || createAutomation(store, options.network);
   const sessions = new Map(), loginAttempts = new Map();
   let loginWindow = 0, totalAttempts = 0, pending, activeChecks = 0;
-  const oauth = createOAuth(store, read);
+  const oauth = createOAuth(store, read, options.fetchOAuthDocument);
   const mcp = createMcpHttp({ store, oauth, automation, readBytes, importImage: options.importImage || createImageImporter() });
   const setCookie = (res, value, age, origin) => res.setHeader('Set-Cookie', `${cookieName}=${value}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${age}${origin.startsWith('https:') ? '; Secure' : ''}`);
   function originAllowed(req, origin) {
@@ -156,7 +156,7 @@ export function createBlog(options = {}) {
     }
     if (path === authorizePath && readOnly) {
       const pending = localOAuthReturn(path + url.search);
-      const candidate = pending && oauth.authRequest(url.searchParams);
+      const candidate = pending && await oauth.authRequest(url.searchParams);
       if (!candidate) return res.writeHead(400).end('Invalid OAuth authorization request.');
       if (!logged) return redirect(res, '/admin/login?' + new URLSearchParams({ next: pending }));
       // Chromium may enforce form-action on the POST's OAuth redirect as well.
@@ -241,7 +241,7 @@ export function createBlog(options = {}) {
     if (path === authorizePath) {
       const request = params.get('request');
       const decision = params.get('decision');
-      const candidate = request && request.length <= 4096 && oauth.authRequest(new URLSearchParams(request));
+      const candidate = request && request.length <= 4096 && await oauth.authRequest(new URLSearchParams(request));
       if (!candidate || !['allow','deny'].includes(decision)) return res.writeHead(400).end('Invalid OAuth authorization request.');
       if (sessions.get(token) !== session || session.expires <= Date.now() || store.getOwner()?.hash !== owner.hash) return res.writeHead(403).end();
       return oauth.authorize(res, candidate, decision === 'deny', owner);
@@ -292,7 +292,7 @@ export function createBlog(options = {}) {
       return redirect(res, '/admin/system/ai?notice=settings');
     }
     if (path === '/admin/system/mcp') {
-      const switches = Object.fromEntries(['mcp', 'mcpWrite', 'mcpPublish'].map((key) => [key, params.get(key) === 'on']));
+      const switches = Object.fromEntries(['mcp', 'mcpWrite', 'mcpPublish', 'mcpChatGPT'].map((key) => [key, params.get(key) === 'on']));
       const requested = (params.get('mcpOrigins') || '').split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
       try {
         const mcpOrigins = [...new Set(requested.map(parseOrigin))];

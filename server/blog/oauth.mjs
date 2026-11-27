@@ -1,3 +1,4 @@
+import { chatgptClientId, chatgptRedirect, createChatGPTRegistration, registrationPath } from './oauth-chatgpt.mjs';
 import { constantEqual, digest, makeKey, parseOrigin, tokenHash } from '../installation.mjs';
 
 export const authorizePath = '/admin/oauth/authorize';
@@ -31,30 +32,38 @@ export function oauthClient(params) {
 
 function uniqueParams(params) { return [...params.keys()].every((key) => params.getAll(key).length === 1); }
 
-export function createOAuth(store, read) {
+export function createOAuth(store, read, fetchDocument) {
   const db = store.oauth;
   const system = () => store.getSystem().siteUrl;
-  const enabled = () => store.getSettings().mcp && db.hasClients();
+  const chatgpt = createChatGPTRegistration(store, fetchDocument);
+  const enabled = () => store.getSettings().mcp && (db.countClients('manual') > 0 || chatgpt.enabled());
+  const getClient = (id) => {
+    const client = db.getClient(id);
+    return client?.kind === 'manual' || chatgpt.enabled() ? client : undefined;
+  };
   const header = () => enabled() ? `, resource_metadata="${system()}${resourceMetadata}", scope="${scope}"` : '';
   const live = (grant) => grant && grant.owner_hash === store.getOwner()?.hash && grant.resource === resourceFor(system());
   const authenticate = (bearer) => {
     if (!keyPattern.test(bearer)) return undefined;
     const grant = db.getGrant(tokenHash(bearer), 'access', Date.now());
-    return live(grant) ? db.getClient(grant.client_id) : undefined;
+    return live(grant) ? getClient(grant.client_id) : undefined;
   };
-  const authRequest = (params) => {
+  const authRequest = async (params) => {
     if (!enabled() || !uniqueParams(params)) return null;
-    const client = db.getClient(params.get('client_id') || '');
+    const id = params.get('client_id');
     const state = params.get('state');
     const redirect = params.get('redirect_uri');
     const challenge = params.get('code_challenge');
     const resource = params.get('resource') ?? resourceFor(system());
-    if (!client || client.redirect !== redirect || resource !== resourceFor(system()) || (state !== null && (state.length === 0 || state.length > 1024)) ||
+    if (resource !== resourceFor(system()) || (state !== null && (state.length === 0 || state.length > 1024)) ||
       !keyPattern.test(challenge || '') || params.get('code_challenge_method') !== 'S256' || params.get('response_type') !== 'code' || (params.get('scope') ?? scope) !== scope) return null;
+    const client = id === chatgptClientId && redirect === chatgptRedirect ? await chatgpt.resolveCimd() : getClient(id || '');
+    if (!enabled() || !client || client.redirect !== redirect) return null;
     return { client, redirect, challenge, resource, state };
   };
   const authorize = (res, value, deny, owner) => {
     const target = new URL(value.redirect);
+    target.searchParams.set('iss', system());
     if (value.state !== null) target.searchParams.set('state', value.state);
     if (deny) target.searchParams.set('error', 'access_denied');
     else {
@@ -67,18 +76,33 @@ export function createOAuth(store, read) {
     return res.writeHead(303, { Location: target.href }).end();
   };
 
-  let attempts = 0, reset = 0;
+  let attempts = 0, reset = 0, registrations = 0, registrationReset = 0;
   async function route(req, res, url) {
     const path = url.pathname;
-    if (![resourceMetadata, '/.well-known/oauth-protected-resource', issuerMetadata, tokenPath].includes(path)) return false;
+    if (![resourceMetadata, '/.well-known/oauth-protected-resource', issuerMetadata, tokenPath, registrationPath].includes(path)) return false;
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Robots-Tag', 'noindex');
     if (!enabled()) return res.writeHead(404).end();
     const site = system();
+    if (path === registrationPath) {
+      if (!chatgpt.enabled()) return res.writeHead(404).end();
+      if (req.method !== 'POST') return res.writeHead(405, { Allow: 'POST' }).end();
+      const now = Date.now();
+      if (now >= registrationReset) { registrationReset = now + 3600000; registrations = 0; }
+      if (++registrations > 30) return res.writeHead(429, { 'Retry-After': String(Math.ceil((registrationReset - now) / 1000)) }).end();
+      if (req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') return reject(res, 400, 'invalid_client_metadata');
+      const raw = await read(req, 8192);
+      if (!raw || !chatgpt.enabled()) return reject(res, 400, 'invalid_client_metadata');
+      let metadata;
+      try { metadata = JSON.parse(raw); } catch { return reject(res, 400, 'invalid_client_metadata'); }
+      const result = chatgpt.register(metadata);
+      return result.error ? reject(res, result.error === 'temporarily_unavailable' ? 503 : 400, result.error) : json(res, 201, result.data);
+    }
     if (path !== tokenPath) {
       res.setHeader('Access-Control-Allow-Origin', '*');
       if (!['GET', 'HEAD'].includes(req.method)) return res.writeHead(405, { Allow: 'GET, HEAD' }).end();
-      if (path === issuerMetadata) return json(res, 200, { issuer: site, authorization_endpoint: site + authorizePath, token_endpoint: site + tokenPath,
+      if (path === issuerMetadata) return json(res, 200, { issuer: site, authorization_endpoint: site + authorizePath, token_endpoint: site + tokenPath, authorization_response_iss_parameter_supported: true,
+        ...(chatgpt.enabled() ? { registration_endpoint: site + registrationPath, client_id_metadata_document_supported: true } : {}),
         response_types_supported: ['code'], grant_types_supported: ['authorization_code', 'refresh_token'], code_challenge_methods_supported: ['S256'],
         token_endpoint_auth_methods_supported: ['none', 'client_secret_basic', 'client_secret_post'], scopes_supported: [scope] });
       return json(res, 200, { resource: resourceFor(site), authorization_servers: [site], scopes_supported: [scope], bearer_methods_supported: ['header'], resource_name: 'OminiCorp MCP' });
@@ -110,7 +134,7 @@ export function createOAuth(store, read) {
       secret = new URLSearchParams(`x=${parts[1]}`).get('x');
       method = 'client_secret_basic';
     }
-    const client = clientId.test(id || '') && db.getClient(id);
+    const client = (id === chatgptClientId || clientId.test(id || '')) && getClient(id);
     if (!client || client.auth !== method || (method !== 'none' && !constantEqual(tokenHash(secret), client.secret))) {
       if (method === 'client_secret_basic') res.setHeader('WWW-Authenticate', 'Basic realm="OminiCorp OAuth"');
       return reject(res, method === 'client_secret_basic' ? 401 : 400, 'invalid_client');

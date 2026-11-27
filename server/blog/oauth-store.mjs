@@ -11,6 +11,9 @@ export function openOAuthStore(db, version) {
     CREATE INDEX oauth_client_grants ON oauth_grant(client_id);
     CREATE INDEX oauth_flow ON oauth_grant(flow);
     PRAGMA user_version=4; COMMIT;`);
+  if (version < 5) db.exec(`BEGIN IMMEDIATE;
+    ALTER TABLE oauth_client ADD COLUMN kind TEXT NOT NULL DEFAULT 'manual' CHECK(kind IN ('manual','dcr','cimd'));
+    PRAGMA user_version=5; COMMIT;`);
   const find = db.prepare('SELECT * FROM oauth_client WHERE id=?');
   const grant = db.prepare('SELECT * FROM oauth_grant WHERE hash=? AND kind=? AND expires>?');
   const insert = db.prepare('INSERT INTO oauth_grant(hash,client_id,kind,expires,resource,owner_hash,redirect,challenge,flow) VALUES(?,?,?,?,?,?,?,?,?)');
@@ -19,9 +22,10 @@ export function openOAuthStore(db, version) {
   const put = ({ hash, client_id, kind, expires, resource, owner_hash, redirect = '', challenge = '', flow }) => insert.run(hash, client_id, kind, expires, resource, owner_hash, redirect, challenge, flow);
   return {
     getClient: (id) => find.get(id),
-    clients: () => db.prepare('SELECT id,name,redirect,auth,writeAccess,publishAccess FROM oauth_client ORDER BY id').all(),
+    clients: () => db.prepare('SELECT id,name,redirect,auth,writeAccess,publishAccess,kind FROM oauth_client ORDER BY id').all(),
+    countClients: (kind) => db.prepare('SELECT count(*) AS total FROM oauth_client WHERE kind=?').get(kind).total,
     hasClients: () => Boolean(db.prepare('SELECT 1 FROM oauth_client LIMIT 1').get()),
-    addClient: ({ id, name, redirect, auth, secret, writeAccess, publishAccess }) => db.prepare('INSERT OR IGNORE INTO oauth_client VALUES(?,?,?,?,?,?,?)').run(id, name, redirect, auth, secret, Number(writeAccess), Number(publishAccess)).changes === 1,
+    addClient: ({ id, name, redirect, auth, secret, writeAccess, publishAccess, kind = 'manual' }) => db.prepare('INSERT OR IGNORE INTO oauth_client VALUES(?,?,?,?,?,?,?,?)').run(id, name, redirect, auth, secret, Number(writeAccess), Number(publishAccess), kind).changes === 1,
     removeClient: (id) => db.prepare('DELETE FROM oauth_client WHERE id=?').run(id).changes === 1,
     getGrant: (hash, kind, now) => grant.get(hash, kind, now),
     putCode(value, now) { prune.run(now); put(value); },

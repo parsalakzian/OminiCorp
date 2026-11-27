@@ -70,7 +70,7 @@ export function createMcpHttp({ store, oauth, automation, readBytes, importImage
     const fixed = bearer && constantEqual(tokenHash(bearer), mcpHash);
     const authClient = !fixed && bearer && oauth.authenticate(bearer);
     if (!fixed && !authClient) {
-      res.setHeader('WWW-Authenticate', 'Bearer realm="OminiCorp Journal"' + oauth.header());
+      res.setHeader('WWW-Authenticate', 'Bearer realm="OminiCorp Journal"' + (bearer && oauth.enabled() ? ', error="invalid_token"' : '') + oauth.header());
       return jsonError(res, 401, bearer ? 'The Bearer token is invalid or was rotated.' : 'Send Authorization: Bearer <token>. If it was sent, check that your reverse proxy forwards it.');
     }
     if (req.method !== 'POST') {
@@ -121,7 +121,7 @@ export function createMcpHttp({ store, oauth, automation, readBytes, importImage
       const headers = new Headers({ Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json' });
       if (req.headers['mcp-protocol-version']) headers.set('MCP-Protocol-Version', req.headers['mcp-protocol-version']);
       const request = new Request(new URL('/mcp', siteUrl), { method: 'POST', headers, signal: client.signal });
-      await handleMcp(request, body, { store, automation, importImage, canWrite, canPublish, writable, publishable: canPublish(), signal: client.signal, mode }, async (response) => {
+      await handleMcp(request, body, { store, automation, importImage, canWrite, canPublish, writable, publishable: canPublish(), signal: client.signal, mode, oauthEnabled: oauth.enabled() }, async (response) => {
         for (const [name, value] of response.headers) res.setHeader(name, value);
         res.setHeader('Cache-Control', mode === 'sse' ? 'no-store, no-transform' : 'no-store');
         res.writeHead(response.status);
