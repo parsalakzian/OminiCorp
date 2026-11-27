@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { request } from 'node:http';
+import { gunzipSync } from 'node:zlib';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -706,4 +709,87 @@ test('live bilingual homepage and image sitemap reflect published covers, inline
   store.setSettings({ ...store.getSettings(), enabled: false });
   assert.deepEqual([...(await map()).keys()], [origin + '/', origin + '/en.html']);
   assert.doesNotMatch(await (await fetch(url + '/en.html')).text(), /home-journal-title/);
+});
+
+
+test('public pages have distinct bilingual sharing copy, valid JSON-LD, icons and known image dimensions', async (t) => {
+  const { store, url } = await fixture(t);
+  const image = store.uploadImage(sampleImage());
+  const draft = clone();
+  draft.state = 'published';
+  draft.sources = [];
+  draft.fa.slug = 'متادیتای-اختصاصی';
+  draft.en.slug = 'custom-sharing-metadata';
+  draft.en.seoTitle = 'A distinct sharing title for the published article';
+  draft.en.description = 'How to verify that sharing metadata and image properties match the article and the language of the link.';
+  draft.en.body += `\n\n![Image of the release](${image.url})`;
+  draft.cover = { src: image.url, altFa: 'تصویر انتشار', altEn: 'Image of the release' };
+  const saved = store.save(draft, undefined, '2026-12-01T10:00:00Z');
+  const titles = new Set();
+  const pathFa = `/blog/${encodeURIComponent(saved.fa.slug)}`;
+  const pathEn = `/en/blog/${saved.en.slug}`;
+  const property = (html, attr, key) => new RegExp(`<meta ${attr}="${key}" content="([^"]+)"`).exec(html)?.[1];
+  for (const path of ['/', '/en.html', '/blog', '/en/blog', `/blog/category/${saved.section}`, pathFa, pathEn]) {
+    const res = await fetch(url + path);
+    assert.equal(res.status, 200, path);
+    const html = await res.text();
+    assert.equal(property(html, 'property', 'og:url'), origin + path);
+    assert.equal(property(html, 'property', 'og:type'), path === pathFa || path === pathEn ? 'article' : 'website');
+    assert.equal(property(html, 'name', 'twitter:card'), 'summary_large_image');
+    for (const tag of ['title', 'description', 'image', 'image:alt']) {
+      const value = property(html, 'property', `og:${tag}`);
+      assert.ok(value, `${tag} on ${path}`);
+      assert.equal(property(html, 'name', `twitter:${tag}`), value);
+    }
+    titles.add(property(html, 'property', 'og:title'));
+    assert.match(html, /rel="apple-touch-icon" sizes="180x180" href="\/assets\/media\/apple-touch-icon.png"/);
+    const [, schema] = html.match(/<script type="application\/ld\+json">(.*?)<\/script>/);
+    const hash = createHash('sha256').update(schema).digest('base64');
+    assert.ok(res.headers.get('content-security-policy').includes(`'sha256-${hash}'`));
+    const types = (JSON.parse(schema)['@graph'] || [JSON.parse(schema)]).map((node) => node['@type']);
+    assert.ok(types.includes(path === pathFa || path === pathEn ? 'BlogPosting' : path.includes('blog') ? 'CollectionPage' : 'Organization'));
+    if (path === pathEn) {
+      assert.equal(property(html, 'property', 'og:title'), saved.en.seoTitle);
+      assert.equal(property(html, 'property', 'og:image'), origin + image.url);
+      assert.equal(property(html, 'property', 'og:image:width'), String(image.width));
+      assert.equal(html.match(new RegExp(`<img src="${image.url}"[^>]+\\bwidth="${image.width}"[^>]+>`, 'g')).length, 2);
+    }
+  }
+  assert.equal(titles.size, 7);
+  for (const [file, type] of [['apple-touch-icon.png', 'image/png'], ['share-home.jpg', 'image/jpeg'], ['share-journal.jpg', 'image/jpeg']]) {
+    const response = await fetch(`${url}/assets/media/${file}`);
+    assert.equal(response.headers.get('content-type'), type);
+    assert.ok((await response.arrayBuffer()).byteLength > 0);
+  }
+});
+
+test('gzip negotiation serves public GET and HEAD with Vary without compressing private or MCP pages', async (t) => {
+  const { url } = await fixture(t);
+  const raw = (path, encoding, method = 'GET', headers = {}) => new Promise((resolve, reject) => {
+    request(url + path, { method, headers: { 'Accept-Encoding': encoding, ...headers } }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, data: Buffer.concat(chunks) }));
+      res.on('error', reject);
+    }).on('error', reject).end();
+  });
+  for (const [path, expected] of [['/', '<!doctype html>'], ['/en/blog', '<!doctype html>'], ['/assets/home.css', 'Generated'], ['/sitemap.xml', '<?xml']]) {
+    const compressed = await raw(path, 'gzip, br');
+    assert.equal(compressed.status, 200);
+    assert.equal(compressed.headers['content-encoding'], 'gzip');
+    assert.match(compressed.headers.vary, /Accept-Encoding/i);
+    const plain = await raw(path, 'gzip;q=0, *;q=1');
+    assert.equal(plain.headers['content-encoding'], undefined);
+    assert.match(plain.headers.vary, /Accept-Encoding/i);
+    assert.ok(plain.data.toString().includes(expected));
+    assert.deepEqual(gunzipSync(compressed.data), plain.data);
+    const head = await raw(path, 'gzip', 'HEAD');
+    assert.equal(head.headers['content-encoding'], 'gzip');
+    assert.equal(head.data.length, 0);
+  }
+  for (const [path, headers] of [['/admin/login', {}], ['/mcp', { Accept: 'text/html' }], ['/assets/media/share-home.jpg', {}]]) {
+    const response = await raw(path, 'gzip', 'GET', headers);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers['content-encoding'], undefined);
+  }
 });

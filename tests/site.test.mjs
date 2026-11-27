@@ -38,8 +38,8 @@ for (const [lang, copy] of Object.entries(locales)) {
     assert.equal(new Set(ids).size, ids.length, 'duplicate element id');
     for (const [, id] of html.matchAll(/href="#([^"]+)"/g)) assert.ok(ids.includes(id), id);
     for (const [, url] of html.matchAll(/(?:\bsrc="|<link[^>]+href=")([^"]+)/g)) {
-      assert.doesNotMatch(url, /^(?:[a-z]+:|\/)/i);
-      await access(new URL(`../${url}`, import.meta.url));
+      assert.doesNotMatch(url, /^(?:[a-z]+:|\/\/)/i);
+      await access(new URL(`../${url.replace(/^\//, '')}`, import.meta.url));
     }
     for (const contact of contacts) assert.ok(html.includes(`href="${contact.href}"`));
     assert.doesNotMatch(html, /<script(?![^>]+src=)|<form(?! method="dialog"| method="post" action="\/api\/(?:request|subscribe)")|\bonclick\s*=/i);

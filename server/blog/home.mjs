@@ -1,4 +1,5 @@
 import { categoryName } from './categories.mjs';
+import { coverSize, sizeAttributes } from './image-markup.mjs';
 import { escape } from './escape.mjs';
 import { articlePath, coverSrc, listPath } from './render.mjs';
 
@@ -11,7 +12,7 @@ const copy = {
   en: { kicker: 'OminiCorp Journal', title: 'Latest articles', intro: 'Fresh guides and perspectives on technology, security, and product design.', all: 'Browse the journal', latest: 'Latest' },
 };
 
-export function renderLatestArticles(lang, items = [], categories = []) {
+export function renderLatestArticles(lang, items = [], categories = [], imageSize) {
   if (!items.length) return '';
   const c = copy[lang];
   const bySlug = new Map(categories.map((value) => [value.slug, value]));
@@ -20,7 +21,7 @@ export function renderLatestArticles(lang, items = [], categories = []) {
     const article = item[lang];
     const topic = categoryName(bySlug.get(item.section), lang);
     return `<article class="home-journal-card"><a href="${articlePath(lang, item)}" class="home-journal-link" aria-labelledby="home-journal-title-${item.id}">
-      <div class="home-journal-cover"><img src="${escape(coverSrc(item))}" alt="" loading="lazy" decoding="async">${index === 0 ? `<span class="home-journal-badge">${c.latest}</span>` : ''}</div>
+      <div class="home-journal-cover"><img src="${escape(coverSrc(item))}" alt=""${sizeAttributes(coverSize(item, imageSize))} loading="lazy" decoding="async">${index === 0 ? `<span class="home-journal-badge">${c.latest}</span>` : ''}</div>
       <div class="home-journal-copy"><div class="home-journal-meta">${topic ? `<span>${escape(topic)}</span>` : ''}<time datetime="${escape(item.published)}">${date.format(new Date(item.published))}</time></div>
         <h3 id="home-journal-title-${item.id}">${escape(article.title)}</h3><p>${escape(article.excerpt)}</p></div></a></article>`;
   };

@@ -9,6 +9,14 @@ for (const [url, lang] of [['/', 'fa'], ['/en.html', 'en']]) {
     page.on('request', (request) => { if (new URL(request.url()).hostname !== '127.0.0.1') external.push(request.url()); });
     await page.goto(url);
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
+    await expect(page.locator('meta[property="og:type"]')).toHaveAttribute('content', 'website');
+    await expect(page.locator('main h1')).toHaveCount(1);
+    await expect(page.locator('img:not([alt]), img:not([width]), img:not([height])')).toHaveCount(0);
+    const headings = (await page.locator('main :is(h1,h2,h3)').allTextContents()).map((label) => label.trim());
+    expect(new Set(headings).size).toBe(headings.length);
+    for (const id of ['request-name', 'request-email', 'request-message', 'subscribe-email', 'subscribe-consent']) {
+      expect(await page.locator(`#${id}`).evaluate((field) => field.labels?.[0]?.textContent.trim())).toBeTruthy();
+    }
     await expect(page.locator('.service-action')).toHaveCount(5);
     await expect(page.locator('.home-journal-card')).toHaveCount(3);
     const journal = page.locator('.home-journal');

@@ -164,6 +164,7 @@ export function openBlog(path, { seedContent = true } = {}) {
         FROM media ORDER BY created DESC, id DESC LIMIT ? OFFSET ?`).all(size, (page - 1) * size).map(mediaInfo);
       return { items, total };
     },
+    imageSize(id) { return db.prepare('SELECT width,height FROM media WHERE id=?').get(id); },
     getImage(id, publicOnly = false) {
       return db.prepare(`SELECT type,size,data FROM media WHERE id=? AND (?=0 OR EXISTS (
         SELECT 1 FROM article_media JOIN articles ON articles.id=article_id WHERE media_id=media.id AND state='published'))`).get(id, Number(publicOnly));

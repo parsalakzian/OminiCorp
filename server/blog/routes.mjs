@@ -1,4 +1,4 @@
-import { checkPassword, constantEqual as equal, digest, makeKey as random, parseOrigin, passwordRecord, tokenHash, updateAiSecrets, updateSystem, validPassword } from '../installation.mjs';
+import { checkPassword, constantEqual as equal, makeKey as random, parseOrigin, passwordRecord, tokenHash, updateAiSecrets, updateSystem, validPassword } from '../installation.mjs';
 import { ZodError } from 'zod';
 import { aiSettingsPage, categoriesPage, categoryEditor, confirmCategoryDelete, confirmDelete, dashboard, editor, login, mediaLibrary, mcpSettingsPage, setupPage, systemPage } from './admin.mjs';
 import { CategoryError, categorySchema, categorySlug } from './categories.mjs';
@@ -6,6 +6,7 @@ import { createAutomation } from './automation.mjs';
 import { createMcpHttp } from './mcp-http.mjs';
 import { createImageImporter } from './media-import.mjs';
 import { imageContentTypes, maxImageBytes, MediaError, mediaFromPath, sendImage } from './media.mjs';
+import { allowPageSchema, publicResponse } from '../public-response.mjs';
 import { render as renderHome } from '../../site/render.mjs';
 import { latestArticleCount } from './home.mjs';
 import { sitemap } from './sitemap.mjs';
@@ -14,10 +15,11 @@ import { slug } from './schema.mjs';
 import { BlogConflict, openBlog } from './store.mjs';
 
 const pageNumber = (value) => Math.max(1, Math.min(10000, Math.floor(Number(value) || 1)));
-const html = (req, res, status, value) => {
-  const structured = value.match(/<script type="application\/ld\+json">([^]*?)<\/script>/)?.[1];
-  if (structured) res.setHeader('Content-Security-Policy', `${res.getHeader('Content-Security-Policy')}; script-src 'self' 'sha256-${digest(structured).toString('base64')}'`);
-  return res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' }).end(req.method === 'HEAD' ? undefined : value);
+const htmlType = { 'Content-Type': 'text/html; charset=utf-8' };
+const html = (req, res, status, value) => res.writeHead(status, htmlType).end(req.method === 'HEAD' ? undefined : value);
+const publicHtml = (req, res, status, value) => {
+  allowPageSchema(res, value);
+  return publicResponse(req, res, status, htmlType, value);
 };
 const redirect = (res, location, status = 303) => res.writeHead(status, { Location: location }).end();
 const cookieName = 'omini_desk';
@@ -193,7 +195,7 @@ export function createBlog(options = {}) {
         const draft = store.find(Number(preview[1]));
         if (!draft) return res.writeHead(404).end();
         if (draft.cover?.src.startsWith('https://')) allowExternalCovers(res);
-        return html(req, res, 200, renderArticle(preview[2], origin, { ...draft, published: draft.published || draft.modified }, [], true, store.findCategory(draft.section)));
+        return html(req, res, 200, renderArticle(preview[2], origin, { ...draft, published: draft.published || draft.modified }, [], true, store.findCategory(draft.section), store.imageSize));
       }
       if (path === '/admin/run') return res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }).end(method === 'HEAD' ? undefined : JSON.stringify({ ...store.getRun(), pending: Boolean(pending) }));
       if (path === '/admin/settings') return redirect(res, '/admin/system');
@@ -312,7 +314,7 @@ export function createBlog(options = {}) {
       const articles = enabled ? store.list({ size: latestArticleCount }).items : [];
       if (articles.some((item) => item.cover?.src.startsWith('https://'))) allowExternalCovers(res);
       res.setHeader('Cache-Control', 'no-cache');
-      return html(req, res, 200, renderHome(path === '/en.html' ? 'en' : 'fa', { origin, articles, categories: enabled ? store.categories() : [] }));
+      return publicHtml(req, res, 200, renderHome(path === '/en.html' ? 'en' : 'fa', { origin, articles, categories: enabled ? store.categories() : [], imageSize: store.imageSize }));
     }
     const blog = path.match(/^\/(en\/)?blog(?:\/category\/([^/]+)|\/([^/]+))?$/);
     if (!blog && !['/robots.txt', '/sitemap.xml'].includes(path)) return false;
@@ -321,31 +323,31 @@ export function createBlog(options = {}) {
     res.setHeader('Cache-Control', 'public, max-age=60');
     if (path === '/robots.txt') return res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }).end(`User-agent: *\nDisallow: /admin\nDisallow: /mcp\nSitemap: ${origin}/sitemap.xml\n`);
     const enabled = store.getSettings().enabled;
-    if (path === '/sitemap.xml') return res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'no-cache' }).end(req.method === 'HEAD' ? undefined : sitemap(origin, { enabled, articles: enabled ? store.published() : [], categories: enabled ? store.categories() : [] }));
+    if (path === '/sitemap.xml') return publicResponse(req, res, 200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'no-cache' }, sitemap(origin, { enabled, articles: enabled ? store.published() : [], categories: enabled ? store.categories() : [] }));
     const lang = blog[1] ? 'en' : 'fa';
-    if (!enabled) return html(req, res, 404, renderMissing(lang, origin));
+    if (!enabled) return publicHtml(req, res, 404, renderMissing(lang, origin));
     if (blog[3]) {
       let name;
-      try { name = decodeURIComponent(blog[3]); } catch { return html(req, res, 404, renderMissing(lang, origin)); }
+      try { name = decodeURIComponent(blog[3]); } catch { return publicHtml(req, res, 404, renderMissing(lang, origin)); }
       const item = slug.safeParse(name).success && store.lookup(lang, name);
-      if (!item) return html(req, res, 404, renderMissing(lang, origin));
+      if (!item) return publicHtml(req, res, 404, renderMissing(lang, origin));
       const same = store.list({ lang, section: item.section, size: 4 }).items.filter((other) => other.id !== item.id);
       const more = store.list({ lang, size: 4 }).items.filter((other) => other.id !== item.id && !same.some((entry) => entry.id === other.id));
       if (item.cover?.src.startsWith('https://')) allowExternalCovers(res);
-      return html(req, res, 200, renderArticle(lang, origin, item, [...same, ...more].slice(0, 3), false, store.findCategory(item.section)));
+      return publicHtml(req, res, 200, renderArticle(lang, origin, item, [...same, ...more].slice(0, 3), false, store.findCategory(item.section), store.imageSize));
     }
     const page = pageNumber(url.searchParams.get('page'));
     const query = (url.searchParams.get('q') || '').trim().slice(0,100);
     const categories = store.categories();
     const rawSection = blog[2] || url.searchParams.get('section') || '';
-    if (rawSection && (!categorySlug.safeParse(rawSection).success || !categories.some(({ slug }) => slug === rawSection))) return html(req, res, 404, renderMissing(lang, origin));
+    if (rawSection && (!categorySlug.safeParse(rawSection).success || !categories.some(({ slug }) => slug === rawSection))) return publicHtml(req, res, 404, renderMissing(lang, origin));
     if (!blog[2] && rawSection) return redirect(res, listUrl(lang, page, rawSection, query), 308);
     const section = rawSection;
     const size = journalPageSize;
     const result = store.list({ lang, page, query, section, size });
-    if (page > 1 && !result.items.length) return html(req, res, 404, renderMissing(lang, origin));
+    if (page > 1 && !result.items.length) return publicHtml(req, res, 404, renderMissing(lang, origin));
     if (result.items.some((item) => item.cover?.src.startsWith('https://'))) allowExternalCovers(res);
-    return html(req, res, 200, renderList(lang, origin, { ...result, page, section, query, size, categories }));
+    return publicHtml(req, res, 200, renderList(lang, origin, { ...result, page, section, query, size, categories, imageSize: store.imageSize }));
   }
   return { route, store, async close() { clearInterval(clock); await automation.close?.(); await pending; store.close(); } };
 }

@@ -15,12 +15,14 @@ markdown.renderer.rules.image = (tokens, i, options, env, renderer) => {
   const id = mediaFromPath(token.attrGet('src'));
   if (!id) return markdown.utils.escapeHtml(renderer.renderInlineAsText(token.children, options, env));
   if (env.preview) token.attrSet('src', mediaPreview(id));
+  const dimensions = env.imageSize?.(id);
+  if (dimensions) for (const key of ['width', 'height']) token.attrSet(key, String(dimensions[key]));
   token.attrSet('loading', 'lazy');
   token.attrSet('decoding', 'async');
   return image(tokens, i, options, env, renderer);
 };
 
-export const renderMarkdown = (body, preview) => markdown.render(body, { preview });
+export const renderMarkdown = (body, preview, imageSize) => markdown.render(body, { preview, imageSize });
 export function referencedImages(body) {
   const ids = new Set();
   for (const token of markdown.parse(body, {})) {
