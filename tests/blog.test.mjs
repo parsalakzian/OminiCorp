@@ -6,6 +6,7 @@ import { Readable } from 'node:stream';
 import { DatabaseSync } from 'node:sqlite';
 import { once } from 'node:events';
 import test from 'node:test';
+import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -441,7 +442,8 @@ test('bilingual category pages keep filters while paging, expose only published 
   assert.ok(article.includes(`href="${path}">Cloud platforms`));
   assert.ok((await (await fetch(url + '/sitemap.xml')).text()).includes(origin + path));
   const empty = await (await fetch(url + '/en/blog/category/design')).text();
-  assert.match(empty, /noindex,follow/);
+  assert.match(empty, /rel="canonical"/);
+  assert.doesNotMatch(empty, /noindex,follow/);
   assert.equal(store.removeCategory('design'), true);
   assert.equal((await fetch(url + '/en/blog/category/design')).status, 404);
 });
@@ -625,4 +627,72 @@ test('an SSE tool call reports progress before a pending image download finishes
     assert.match(rest, /"id":"upload"/);
     assert.match(rest, /"structuredContent":\{"image":/);
   } finally { resolveImage(sampleImage()); await reader.cancel().catch(() => {}); }
+});
+
+
+test('live bilingual homepage and image sitemap reflect published covers, inline images and canonical pagination only', async (t) => {
+  const { store, url } = await fixture(t);
+  const cover = store.uploadImage(sampleImage());
+  const inline = store.uploadImage(readFileSync(new URL('../assets/media/hero.webp', import.meta.url)));
+  const hidden = store.uploadImage(readFileSync(new URL('../assets/media/logo.webp', import.meta.url)));
+  const external = 'https://images.example.test/thumbnail.webp?width=600&v=2';
+  let latest;
+  for (let n = 0; n < 8; n++) {
+    const item = clone();
+    item.sources = [];
+    item.en.slug = `sitemap-topic-${n}`;
+    item.fa.slug = `نوشته-نقشه-${n}`;
+    item.en.title = `Sitemap Topic Article ${n}`;
+    item.fa.title = `نوشتهٔ نقشهٔ سایت ${n}`;
+    item.state = n === 7 ? 'draft' : 'published';
+    if (n === 7) item.cover = { src: hidden.url };
+    if (n === 5) item.cover = { src: external };
+    if (n === 6) {
+      item.cover = { src: cover.url };
+      item.fa.body += `\n\n![نمودار](${inline.url})\n\n![نمودار تکراری](${inline.url})`;
+    }
+    const saved = store.save(item, undefined, new Date(date + (n + 10) * 86400000).toISOString());
+    if (n === 6) latest = saved;
+  }
+  const enPage = '/en/blog/' + latest.en.slug;
+  const faPage = '/blog/' + encodeURIComponent(latest.fa.slug);
+  const response = await fetch(url + '/en.html');
+  assert.match(response.headers.get('content-security-policy'), /img-src 'self' https:/);
+  const homepage = await response.text();
+  assert.match(homepage, /<h2 id="home-journal-title">Latest articles<\/h2>/);
+  assert.match(homepage, /class="home-journal-card"><a href="\/en\/blog\/sitemap-topic-6"/);
+  assert.ok(homepage.includes(`src="${cover.url}"`));
+  assert.doesNotMatch(homepage, /sitemap-topic-7|sitemap-topic-3/);
+  assert.ok((await (await fetch(url + '/')).text()).includes(faPage));
+  const map = async () => {
+    const res = await fetch(url + '/sitemap.xml');
+    assert.match(res.headers.get('content-type'), /application\/xml/);
+    assert.equal(res.headers.get('cache-control'), 'no-cache');
+    const xml = await res.text();
+    assert.equal(XMLValidator.validate(xml), true);
+    assert.match(xml, /xmlns:image="http:\/\/www.google.com\/schemas\/sitemap-image\/1.1"/);
+    const result = new XMLParser({ ignoreAttributes: false, isArray: (name) => ['url', 'image:image', 'xhtml:link'].includes(name) }).parse(xml);
+    return new Map(result.urlset.url.map((entry) => [entry.loc, entry]));
+  };
+  let entries = await map();
+  const imgs = (path) => entries.get(origin + path)['image:image'].map((entry) => entry['image:loc']);
+  for (const path of ['/', '/en.html', '/blog', '/en/blog', '/blog?page=2', '/en/blog?page=2', '/blog/category/engineering?page=2', '/blog/category/design']) {
+    assert.ok(entries.has(origin + path), path);
+  }
+  assert.deepEqual(entries.get(origin + enPage)['xhtml:link'].map((item) => item['@_hreflang']), ['fa', 'en', 'x-default']);
+  assert.ok(imgs('/').includes(origin + cover.url));
+  assert.ok(imgs('/en.html').includes(external));
+  assert.ok(imgs('/en.html').includes(origin + '/assets/media/hero.webp'));
+  assert.ok(imgs('/en/blog/category/engineering').includes(origin + cover.url));
+  assert.ok(imgs(enPage).includes(origin + cover.url));
+  assert.ok(!imgs(enPage).includes(origin + inline.url));
+  assert.equal(imgs(faPage).filter((src) => src === origin + inline.url).length, 1);
+  assert.ok([...entries].every(([path, entry]) => !path.includes('sitemap-topic-7') && !path.includes('?q=') && !path.includes('/admin') && !entry['image:image'].some((item) => item['image:loc'] === origin + hidden.url)));
+  store.save({ ...latest, state: 'draft' }, latest.id);
+  entries = await map();
+  assert.ok(!entries.has(origin + enPage));
+  assert.doesNotMatch(await (await fetch(url + '/en.html')).text(), /sitemap-topic-6/);
+  store.setSettings({ ...store.getSettings(), enabled: false });
+  assert.deepEqual([...(await map()).keys()], [origin + '/', origin + '/en.html']);
+  assert.doesNotMatch(await (await fetch(url + '/en.html')).text(), /home-journal-title/);
 });

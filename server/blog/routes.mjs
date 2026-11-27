@@ -6,7 +6,10 @@ import { createAutomation } from './automation.mjs';
 import { createMcpHttp } from './mcp-http.mjs';
 import { createImageImporter } from './media-import.mjs';
 import { imageContentTypes, maxImageBytes, MediaError, mediaFromPath, sendImage } from './media.mjs';
-import { listUrl, renderArticle, renderList, renderMissing, sitemap } from './render.mjs';
+import { render as renderHome } from '../../site/render.mjs';
+import { latestArticleCount } from './home.mjs';
+import { sitemap } from './sitemap.mjs';
+import { journalPageSize, listUrl, renderArticle, renderList, renderMissing } from './render.mjs';
 import { slug } from './schema.mjs';
 import { BlogConflict, openBlog } from './store.mjs';
 
@@ -303,6 +306,14 @@ export function createBlog(options = {}) {
     const media = mediaFromPath(path);
     if (media) return sendImage(req, res, ['GET', 'HEAD'].includes(req.method) && store.getSettings().enabled ? store.getImage(media, true) : undefined);
     if (path === '/admin' || path.startsWith('/admin/')) return admin(req, res, url);
+    if (['/', '/index.html', '/en.html'].includes(path) && ['GET', 'HEAD'].includes(req.method)) {
+      const origin = store.getSystem().siteUrl;
+      const enabled = store.getSettings().enabled;
+      const articles = enabled ? store.list({ size: latestArticleCount }).items : [];
+      if (articles.some((item) => item.cover?.src.startsWith('https://'))) allowExternalCovers(res);
+      res.setHeader('Cache-Control', 'no-cache');
+      return html(req, res, 200, renderHome(path === '/en.html' ? 'en' : 'fa', { origin, articles, categories: enabled ? store.categories() : [] }));
+    }
     const blog = path.match(/^\/(en\/)?blog(?:\/category\/([^/]+)|\/([^/]+))?$/);
     if (!blog && !['/robots.txt', '/sitemap.xml'].includes(path)) return false;
     const origin = store.getSystem().siteUrl;
@@ -310,7 +321,7 @@ export function createBlog(options = {}) {
     res.setHeader('Cache-Control', 'public, max-age=60');
     if (path === '/robots.txt') return res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }).end(`User-agent: *\nDisallow: /admin\nDisallow: /mcp\nSitemap: ${origin}/sitemap.xml\n`);
     const enabled = store.getSettings().enabled;
-    if (path === '/sitemap.xml') return res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }).end(sitemap(origin, enabled ? store.published() : [], enabled, enabled ? store.categories() : []));
+    if (path === '/sitemap.xml') return res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'no-cache' }).end(req.method === 'HEAD' ? undefined : sitemap(origin, { enabled, articles: enabled ? store.published() : [], categories: enabled ? store.categories() : [] }));
     const lang = blog[1] ? 'en' : 'fa';
     if (!enabled) return html(req, res, 404, renderMissing(lang, origin));
     if (blog[3]) {
@@ -330,7 +341,7 @@ export function createBlog(options = {}) {
     if (rawSection && (!categorySlug.safeParse(rawSection).success || !categories.some(({ slug }) => slug === rawSection))) return html(req, res, 404, renderMissing(lang, origin));
     if (!blog[2] && rawSection) return redirect(res, listUrl(lang, page, rawSection, query), 308);
     const section = rawSection;
-    const size = 6;
+    const size = journalPageSize;
     const result = store.list({ lang, page, query, section, size });
     if (page > 1 && !result.items.length) return html(req, res, 404, renderMissing(lang, origin));
     if (result.items.some((item) => item.cover?.src.startsWith('https://'))) allowExternalCovers(res);

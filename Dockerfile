@@ -12,6 +12,7 @@ COPY --from=dependencies --chown=node:node /app/data ./data
 COPY index.html en.html ./
 COPY assets/ ./assets/
 COPY server/ ./server/
+COPY site/content.mjs site/forms.mjs site/icons.mjs site/render.mjs ./site/
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
