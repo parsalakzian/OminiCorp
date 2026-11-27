@@ -86,3 +86,7 @@
 - `server/blog/oauth.mjs`: قرارداد ثبت دستی کلاینت، کشف OAuth، رضایت مدیر، Authorization Code + PKCE و تبدیل کد/refresh به Bearer محدود به MCP.
 - `server/blog/oauth-store.mjs`: مهاجرت مستقل SQLite و نگهداری هش کدها، توکن‌ها و راز کلاینت، مصرف اتمی کد و refresh و لغو کلاینت.
 - `server/blog/oauth-admin.mjs`: فرم ثبت/لغو و صفحهٔ رضایت؛ `routes.mjs` از همان حساب، نشست و CSRF پنل استفاده می‌کند. `mcp-http.mjs` توکن ثابت و OAuth را مستقل بررسی می‌کند.
+
+### اتصال ChatGPT
+
+`server/blog/oauth-chatgpt.mjs` سیاست opt-in ثبت محدود DCR و اعتبارسنجی سند ثابت CIMD متعلق به ChatGPT را جدا می‌کند. `oauth.mjs` discovery و issuer را اعلام می‌کند و همان grantهای موجود را به‌کار می‌برد. کلاینت خودکار فقط‌خواندنی است و هیچ URI ورودی دلخواه از شبکه واکشی نمی‌شود.

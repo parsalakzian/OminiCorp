@@ -11,10 +11,10 @@ const problem = (error) => result({ error }, true);
 const id = z.number().int().positive();
 const readOnly = { readOnlyHint: true, openWorldHint: false };
 
-export async function handleMcp(request, body, { store, automation, importImage, canWrite, canPublish, writable, publishable, signal, mode }, respond) {
+export async function handleMcp(request, body, { store, automation, importImage, canWrite, canPublish, writable, publishable, signal, mode, oauthEnabled }, respond) {
   const mcp = new McpServer({ name: 'ominicorp-journal', version: '1.0.0' });
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: mode === 'json' });
-  const register = (name, description, inputSchema, annotations, handler) => mcp.registerTool(name, { description, inputSchema, annotations }, async (data, extra) => {
+  const register = (name, description, inputSchema, annotations, handler) => mcp.registerTool(name, { description, inputSchema, annotations, ...(oauthEnabled ? { _meta: { securitySchemes: [{ type: 'oauth2', scopes: ['mcp'] }] } } : {}) }, async (data, extra) => {
     try { return await handler(data, extra); }
     catch (error) { return problem(error instanceof BlogConflict || error instanceof MediaError || error instanceof CategoryError ? error.message : 'Editorial operation failed.'); }
   });
