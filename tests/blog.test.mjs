@@ -670,8 +670,13 @@ test('live bilingual homepage and image sitemap reflect published covers, inline
     assert.equal(res.headers.get('cache-control'), 'no-cache');
     const xml = await res.text();
     assert.equal(XMLValidator.validate(xml), true);
+    assert.match(xml, /^<\?xml version="1\.0" encoding="UTF-8"\?>\n<urlset /);
+    assert.match(xml, /\n  <url>\n    <loc>https:\/\/journal\.example\.test\/<\/loc>\n    <priority>1\.0000<\/priority>/);
+    assert.match(xml, /\n    <image:image>\n      <image:loc>[^\n]+<\/image:loc>\n    <\/image:image>/);
+    assert.doesNotMatch(xml, /&lt;\?xml|<loc>[^<]*\/(?:index\.html|sitemap\.xml)<\/loc>/);
+    assert.equal(xml, await (await fetch(url + '/sitemap.xml')).text());
     assert.match(xml, /xmlns:image="http:\/\/www.google.com\/schemas\/sitemap-image\/1.1"/);
-    const result = new XMLParser({ ignoreAttributes: false, isArray: (name) => ['url', 'image:image', 'xhtml:link'].includes(name) }).parse(xml);
+    const result = new XMLParser({ parseTagValue: false, ignoreAttributes: false, isArray: (name) => ['url', 'image:image', 'xhtml:link'].includes(name) }).parse(xml);
     return new Map(result.urlset.url.map((entry) => [entry.loc, entry]));
   };
   let entries = await map();
@@ -679,6 +684,12 @@ test('live bilingual homepage and image sitemap reflect published covers, inline
   for (const path of ['/', '/en.html', '/blog', '/en/blog', '/blog?page=2', '/en/blog?page=2', '/blog/category/engineering?page=2', '/blog/category/design']) {
     assert.ok(entries.has(origin + path), path);
   }
+  assert.equal(entries.get(origin + '/').priority, '1.0000');
+  assert.equal(entries.get(origin + '/en.html').priority, '0.8000');
+  assert.equal(entries.get(origin + '/blog').priority, '0.8000');
+  assert.equal(entries.get(origin + '/blog?page=2').priority, '0.6400');
+  assert.equal(entries.get(origin + enPage).lastmod, new Date(latest.modified).toISOString().replace('.000Z', '+00:00'));
+  assert.equal(entries.get(origin + '/').lastmod, undefined);
   assert.deepEqual(entries.get(origin + enPage)['xhtml:link'].map((item) => item['@_hreflang']), ['fa', 'en', 'x-default']);
   assert.ok(imgs('/').includes(origin + cover.url));
   assert.ok(imgs('/en.html').includes(external));
