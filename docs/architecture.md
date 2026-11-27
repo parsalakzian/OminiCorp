@@ -80,3 +80,9 @@
 - `server/public-response.mjs`: مذاکرهٔ gzip برای پاسخ عمومی و ساخت CSP مبتنی بر هش برای JSON-LD؛ مسیرهای خصوصی و MCP از فشرده‌سازی خارج‌اند.
 - `server/blog/image-markup.mjs`: ویژگی‌های اندازهٔ تصویر با ابعاد فایل محلی یا متادیتای SQLite؛ بدون دانلود تصویر خارجی هنگام رندر.
 - `site/build.mjs`: تولید یک stylesheet محلی برای صفحهٔ اصلی از CSS پایه، فرم‌ها و TV؛ SSR همان فایل را استفاده می‌کند. HSTS در پراکسی خاتمه‌دهندهٔ TLS فعال می‌شود (راهنمای `docs/seo.md`).
+
+### احراز هویت MCP با OAuth و توکن ثابت
+
+- `server/blog/oauth.mjs`: قرارداد ثبت دستی کلاینت، کشف OAuth، رضایت مدیر، Authorization Code + PKCE و تبدیل کد/refresh به Bearer محدود به MCP.
+- `server/blog/oauth-store.mjs`: مهاجرت مستقل SQLite و نگهداری هش کدها، توکن‌ها و راز کلاینت، مصرف اتمی کد و refresh و لغو کلاینت.
+- `server/blog/oauth-admin.mjs`: فرم ثبت/لغو و صفحهٔ رضایت؛ `routes.mjs` از همان حساب، نشست و CSRF پنل استفاده می‌کند. `mcp-http.mjs` توکن ثابت و OAuth را مستقل بررسی می‌کند.

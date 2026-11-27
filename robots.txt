@@ -1,4 +1,5 @@
 User-agent: *
 Disallow: /admin
 Disallow: /mcp
+Disallow: /oauth
 Sitemap: https://ominicorp.com/sitemap.xml

@@ -20,7 +20,7 @@ export function exportBlog(origin) {
       output.set(file, renderArticle(lang, origin, article, articles.filter((item) => item !== article)));
     }
   }
-  output.set('robots.txt', `User-agent: *\nDisallow: /admin\nDisallow: /mcp\nSitemap: ${origin}/sitemap.xml\n`);
+  output.set('robots.txt', `User-agent: *\nDisallow: /admin\nDisallow: /mcp\nDisallow: /oauth\nSitemap: ${origin}/sitemap.xml\n`);
   output.set('sitemap.xml', sitemap(origin, { articles, categories }));
   return output;
 }

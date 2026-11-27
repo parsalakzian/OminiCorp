@@ -54,6 +54,7 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/admin)" = 303
           curl -fsS http://127.0.0.1:8080/admin/setup | grep 'name="confirmation"'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/mcp)" = 404
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/.well-known/oauth-authorization-server)" = 404
           curl -fsS -H 'Accept: text/html' http://127.0.0.1:8080/mcp/ | grep 'Streamable HTTP'
           test "$(curl -s -o /dev/null -w '%{http_code}' --data-binary 'sample' http://127.0.0.1:8080/mcp/media)" = 404
           docker compose exec -T website test -f /app/data/blog.sqlite

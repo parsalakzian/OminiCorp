@@ -11,8 +11,7 @@ const problem = (error) => result({ error }, true);
 const id = z.number().int().positive();
 const readOnly = { readOnlyHint: true, openWorldHint: false };
 
-export async function handleMcp(request, body, { store, automation, importImage, canWrite, signal, mode }, respond) {
-  const settings = store.getSettings();
+export async function handleMcp(request, body, { store, automation, importImage, canWrite, canPublish, writable, publishable, signal, mode }, respond) {
   const mcp = new McpServer({ name: 'ominicorp-journal', version: '1.0.0' });
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: mode === 'json' });
   const register = (name, description, inputSchema, annotations, handler) => mcp.registerTool(name, { description, inputSchema, annotations }, async (data, extra) => {
@@ -20,7 +19,7 @@ export async function handleMcp(request, body, { store, automation, importImage,
     catch (error) { return problem(error instanceof BlogConflict || error instanceof MediaError || error instanceof CategoryError ? error.message : 'Editorial operation failed.'); }
   });
   function writeAllowed() { const state = store.getSettings(); return state.mcp && state.mcpWrite && canWrite(); }
-  function publishAllowed() { return writeAllowed() && store.getSettings().mcpPublish; }
+  function publishAllowed() { return writeAllowed() && store.getSettings().mcpPublish && canPublish(); }
   register('list_articles', 'List journal articles with Persian and English metadata. Drafts are only available when MCP write access is enabled.', z.object({ lang: z.enum(['fa', 'en']).default('fa'), query: z.string().max(100).default(''), section: categorySlug.optional(), state: z.enum(['draft', 'published']).optional(), page: z.number().int().min(1).max(10000).default(1) }), readOnly, ({ lang, query, section, state, page }) => {
     const { items, total } = store.list({ lang, query, section, state, page, size: 15, admin: writeAllowed() });
     return result({ total, page, items: items.map(({ fa, en, ...item }) => ({ ...item, fa: { ...fa, body: undefined }, en: { ...en, body: undefined } })) });
@@ -30,7 +29,7 @@ export async function handleMcp(request, body, { store, automation, importImage,
     return item && (item.state === 'published' || writeAllowed()) ? result({ article: item }) : problem('Article not found.');
   });
   register('list_categories', 'List bilingual journal categories in display order, with article counts. Drafts count only with write access.', z.object({}), readOnly, () => result({ categories: store.categories(writeAllowed()) }));
-  if (settings.mcpWrite) {
+  if (writable) {
     register('upload_image', `Save a PNG, JPEG or WebP (up to ${maxImageMiB} MiB). If you have a direct public HTTPS image link, pass url only; the server downloads the original. If you have file bytes, pass base64 only. For local files that the MCP client cannot encode or send, use authenticated POST /mcp/media with the raw file body. Use returned image.url as cover.src or as ![alt](url) in article text.`, z.object({ url: z.string().trim().url().max(4096).optional(), base64: z.string().min(4).max(maxImageInput).optional() }), { destructiveHint: false, openWorldHint: true }, async ({ base64, url }, extra) => {
       if (!writeAllowed()) return problem('Write access is disabled.');
       if (Boolean(url) === Boolean(base64)) return problem('Send exactly one input: url for a direct public HTTPS image, or base64 for file bytes.');
@@ -67,9 +66,9 @@ export async function handleMcp(request, body, { store, automation, importImage,
       if (store.find(input.id)?.state === 'published' && !publishAllowed()) return problem('Removing live content requires publishing access.');
       return result({ removed: store.remove(input.id) });
     });
-    if (settings.ai) register('generate_articles', 'Read current configured RSS/Atom feeds and create new bilingual drafts. Never publishes.', z.object({ limit: z.number().int().min(1).max(3).default(1) }), { destructiveHint: false, openWorldHint: true }, async ({ limit }) => writeAllowed() ? result(await automation.run({ articleLimit: limit })) : problem('Write access is disabled.'));
+    if (store.getSettings().ai) register('generate_articles', 'Read current configured RSS/Atom feeds and create new bilingual drafts. Never publishes.', z.object({ limit: z.number().int().min(1).max(3).default(1) }), { destructiveHint: false, openWorldHint: true }, async ({ limit }) => writeAllowed() ? result(await automation.run({ articleLimit: limit })) : problem('Write access is disabled.'));
   }
-  if (settings.mcpWrite && settings.mcpPublish) {
+  if (writable && publishable) {
     register('create_category', 'Create a bilingual category on the public journal. The slug is permanent.', z.object({ category: categorySchema }), { destructiveHint: false, openWorldHint: false }, ({ category }) => publishAllowed() ? result({ category: store.saveCategory(category) }) : problem('Publishing access is disabled.'));
     register('update_category', 'Update category titles, descriptions, theme and display order without changing its slug or articles.', z.object({ slug: categorySlug, category: categorySchema.omit({ slug: true }) }), { idempotentHint: true, openWorldHint: false }, ({ slug, category }) => {
       if (!publishAllowed()) return problem('Publishing access is disabled.');
