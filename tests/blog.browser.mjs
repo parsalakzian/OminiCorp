@@ -291,10 +291,18 @@ test('OAuth consent survives admin login and redirects safely to the registered 
     await page.goto(origin + '/admin/system/mcp');
     await expect(page.getByLabel('نشانی سند کلاینت CIMD (Client ID URL)')).toHaveValue('https://chatgpt.com/oauth/client.json');
     await expect(page.getByLabel('نشانی بازگشت CIMD (Callback URL)')).toHaveValue('https://chatgpt.com/connector_platform_oauth_redirect');
+    await page.getByRole('link', { name: '＋ کلاینت جدید', exact: true }).click();
+    await expect(page).toHaveURL(/connections\/new$/);
     await page.getByLabel('نام نمایشی کلاینت').fill('Browser MCP fixture');
     await page.getByLabel('شناسهٔ کلاینت (Client ID)').fill('browser-test');
     await page.getByLabel('نشانی بازگشت (Redirect URI)').fill(callback);
     await page.getByRole('button', { name: 'ثبت کلاینت OAuth' }).click();
+    await expect(page).toHaveURL(/connections\?notice=settings$/);
+    await expect(page.getByText('Browser MCP fixture', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('نام نمایشی کلاینت')).toHaveCount(0);
+    await page.getByText('تنظیم مجوزها و نشانی‌ها', { exact: true }).click();
+    await page.getByLabel('نوشتن و مدیریت رسانه').check();
+    await page.getByRole('button', { name: 'ذخیرهٔ مجوزهای کلاینت' }).click();
     await expect(page.getByText('Browser MCP fixture', { exact: true })).toBeVisible();
     await page.context().clearCookies();
     const query = new URLSearchParams({ client_id: 'browser-test', redirect_uri: callback, response_type: 'code', state: 'browser-state',

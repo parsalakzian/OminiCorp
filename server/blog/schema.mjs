@@ -1,3 +1,4 @@
+import { validateCallback } from './oauth-clients.mjs';
 import { chatgptClientId, chatgptRedirect, validChatGPTPair } from './oauth-chatgpt.mjs';
 import { z } from 'zod';
 import { categorySlug } from './categories.mjs';
@@ -31,6 +32,7 @@ const https = (value) => webUrl(value) && new URL(value).protocol === 'https:';
 export const settingsSchema = z.object({
   enabled: z.boolean(), mcp: z.boolean(), mcpWrite: z.boolean(), mcpPublish: z.boolean(), mcpChatGPT: z.boolean().default(false),
   mcpCimdClient: z.string().max(240).default(chatgptClientId), mcpCimdCallback: z.string().max(240).default(chatgptRedirect),
+  mcpDcrCallbacks: z.array(z.string().refine((value) => { try { return validateCallback(value) === value && value.startsWith('https://'); } catch { return false; } })).max(10).default([]),
   mcpOrigins: z.array(z.string().max(350).refine((origin) => {
     try { return parseOrigin(origin) === origin; } catch { return false; }
   })).max(10).default([]),
@@ -47,7 +49,7 @@ export const settingsSchema = z.object({
   interval: z.number().int().min(15).max(10080), batch: z.number().int().min(1).max(20),
 }).refine((s) => validChatGPTPair(s.mcpCimdClient, s.mcpCimdCallback), { path: ['mcpCimdClient'] });
 export const defaults = {
-  enabled: true, mcp: false, mcpWrite: false, mcpPublish: false, mcpChatGPT: false, mcpCimdClient: chatgptClientId, mcpCimdCallback: chatgptRedirect, mcpOrigins: [], ai: false, scheduling: false, autopublish: false,
+  enabled: true, mcp: false, mcpWrite: false, mcpPublish: false, mcpChatGPT: false, mcpCimdClient: chatgptClientId, mcpCimdCallback: chatgptRedirect, mcpDcrCallbacks: [], mcpOrigins: [], ai: false, scheduling: false, autopublish: false,
   aiEndpoint: 'https://api.openai.com/v1/chat/completions', aiModel: '', useProxy: false, proxyUrl: '', feeds: [], interval: 60, batch: 3,
 };
 
