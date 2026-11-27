@@ -10,6 +10,12 @@ for (const [url, lang] of [['/', 'fa'], ['/en.html', 'en']]) {
     await page.goto(url);
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
     await expect(page.locator('.service-action')).toHaveCount(5);
+    await expect(page.locator('.home-journal-card')).toHaveCount(3);
+    const journal = page.locator('.home-journal');
+    await expect(journal.locator('h2')).toHaveText(lang === 'fa' ? 'تازه‌ترین نوشته‌ها' : 'Latest articles');
+    const preview = journal.locator('img').first();
+    await preview.scrollIntoViewIfNeeded();
+    await expect.poll(() => preview.evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
     for (const width of [1440, 1024, 768, 760, 430, 375, 320]) {
       await page.setViewportSize({ width, height: 900 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth), `${lang} at ${width}px`).toBe(width);

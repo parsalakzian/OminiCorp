@@ -13,13 +13,15 @@ export const labels = {
   fa: { name: 'مجلهٔ اومینی‌کورپ', tagline: 'مجلهٔ فناوری و طراحی', title: 'فناوری، از زاویهٔ کاربردی', intro: 'راهنماها و تحلیل‌هایی برای ساختن، امن‌کردن و بهتر کردن محصولات دیجیتال.', home: 'سایت اصلی', list: 'همهٔ نوشته‌ها', latest: 'آخرین نوشته‌ها', read: 'خواندن مقاله', empty: 'نوشته‌ای پیدا نشد.', search: 'جست‌وجو در مجله', searchButton: 'جست‌وجو', sources: 'منابع', back: 'بازگشت به مجله', time: 'دقیقه مطالعه', missing: 'این نوشته پیدا نشد', error: 'این صفحه در دسترس نیست.' },
   en: { name: 'OminiCorp Journal', tagline: 'The technology & design journal', title: 'Technology, in practice.', intro: 'Guides and analysis for building, securing, and improving digital products.', home: 'Main site', list: 'All articles', latest: 'Latest articles', read: 'Read article', empty: 'No articles found.', search: 'Search the journal', searchButton: 'Search', sources: 'Sources', back: 'Back to the journal', time: 'min read', missing: 'Article not found', error: 'This page is not available.' },
 };
-const mark = '<span class="wordmark"><img src="/assets/media/logo.webp" alt="" width="41" height="30"><strong dir="ltr">OMINI<span>CORP</span></strong></span>';
+export const journalPageSize = 6;
+export const journalLogo = '/assets/media/logo.webp';
+const mark = `<span class="wordmark"><img src="${journalLogo}" alt="" width="41" height="30"><strong dir="ltr">OMINI<span>CORP</span></strong></span>`;
 const icon = (value) => `<span class="journal-arrow" aria-hidden="true">${value}</span>`;
 const date = (value, lang) => new Intl.DateTimeFormat(lang === 'fa' ? 'fa-IR' : 'en-GB', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(value));
 const minutes = (body) => Math.max(1, Math.ceil(body.trim().split(/\s+/).length / 185));
 const asJson = (value) => JSON.stringify(value).replace(/</g, '\\u003c');
 const coverAlt = (item, lang) => item.cover?.[lang === 'fa' ? 'altFa' : 'altEn'] || '';
-const coverSrc = (item, preview) => {
+export const coverSrc = (item, preview) => {
   const src = item.cover?.src || image;
   const id = mediaFromPath(src);
   return preview && id ? mediaPreview(id) : src;
@@ -93,7 +95,7 @@ export function renderList(lang, origin, { items, total, page, section, query, s
   const resultsTitle = query ? (fa ? 'نتایج جست‌وجو' : 'Search results') : category ? (fa ? 'نوشته‌های این دسته' : 'Articles in this category') : c.latest;
   const body = `${top(lang, alternates[otherLang(lang)])}<main id="journal">${header}${categoryNavigation(lang, categories, section, query, categories.reduce((sum, entry) => sum + entry.count, 0))}
   <section class="shell journal-list" aria-labelledby="latest"><div class="journal-list-head"><h2 id="latest">${resultsTitle}</h2><span class="journal-count">${number(total)} ${fa ? 'نوشته' : total === 1 ? 'article' : 'articles'}</span></div>${items.length ? `<div class="journal-cards">${items.map(card).join('')}</div>` : `<p class="journal-empty">${c.empty}</p>`}${pagination({ page, total, size, lang, href: (n) => listUrl(lang, n, section, query) })}</section></main>${footer(lang)}`;
-  return documentPage({ lang, origin, title: `${categoryTitle ? `${categoryTitle} | ` : ''}${c.name}${page > 1 ? ` • ${number(page)}` : ''}`, description, canonical, alternates, noindex: Boolean(query || (category && !category.count)), body,
+  return documentPage({ lang, origin, title: `${categoryTitle ? `${categoryTitle} | ` : ''}${c.name}${page > 1 ? ` • ${number(page)}` : ''}`, description, canonical, alternates, noindex: Boolean(query), body,
     schema: { '@context': 'https://schema.org', '@type': 'CollectionPage', name: categoryTitle || c.name, url: new URL(canonical, origin).href, inLanguage: lang } });
 }
 
@@ -111,11 +113,4 @@ export function renderArticle(lang, origin, item, related = [], preview = false,
 export function renderMissing(lang, origin) {
   const c = labels[lang];
   return documentPage({ lang, origin, title: c.missing, noindex: true, body: `${top(lang, listPath(otherLang(lang)))}<main id="journal" class="shell journal-list"><h1>${c.missing}</h1><p>${c.error}</p><a class="read-link" href="${listPath(lang)}">${c.back}</a></main>${footer(lang)}` });
-}
-
-export function sitemap(origin, rows, enabled = true, categories = []) {
-  const paths = (path) => escape(new URL(path, origin).href);
-  const index = { fa: '/blog', en: '/en/blog' };
-  const pairs = [{ fa: '/', en: '/en.html' }, ...(enabled ? [index, ...categories.filter(({ count }) => count > 0).map(({ slug }) => ({ fa: categoryPath('fa', slug), en: categoryPath('en', slug) }))] : []), ...rows.map((row) => ({ fa: `${index.fa}/${encodeURIComponent(row.fa_slug)}`, en: `${index.en}/${encodeURIComponent(row.en_slug)}`, lastmod: row.modified }))];
-  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">${pairs.flatMap((pair) => ['fa', 'en'].map((lang) => `<url><loc>${paths(pair[lang])}</loc>${pair.lastmod ? `<lastmod>${escape(pair.lastmod)}</lastmod>` : ''}${['fa', 'en', 'x-default'].map((alt) => `<xhtml:link rel="alternate" hreflang="${alt}" href="${paths(pair[alt === 'x-default' ? 'fa' : alt])}"/>`).join('')}</url>`)).join('')}</urlset>`;
 }

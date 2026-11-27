@@ -8,3 +8,8 @@
 !assets/**
 !server/
 !server/**
+!site/
+!site/content.mjs
+!site/forms.mjs
+!site/icons.mjs
+!site/render.mjs

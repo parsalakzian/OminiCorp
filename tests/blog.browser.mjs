@@ -120,6 +120,13 @@ test('responsive desk writes both translations, publishes, updates settings and 
   await page.getByRole('button', { name: 'ذخیرهٔ مقاله' }).click();
   expect((await page.request.get(`/en/blog/${value.en.slug}`)).status()).toBe(200);
   await page.goto('/en/blog');
+  await page.goto('/en.html');
+  const latestCard = page.locator('.home-journal-card').first();
+  await expect(latestCard.getByRole('link', { name: value.en.title })).toHaveAttribute('href', `/en/blog/${value.en.slug}`);
+  await expect(latestCard.locator('img')).toHaveAttribute('src', photo);
+  await latestCard.getByRole('link', { name: value.en.title }).click();
+  await expect(page.locator('h1')).toHaveText(value.en.title);
+  await page.goto('/en/blog');
   await expect(page.locator('.journal-art')).toHaveAttribute('href', `/en/blog/${value.en.slug}`);
   const featured = page.locator('.journal-art img');
   await expect(featured).toHaveAttribute('src', photo);

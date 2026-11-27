@@ -37,6 +37,7 @@ jobs:
           docker compose exec -T website test -f /app/data/subscribers.sqlite
           docker compose exec -T website node server/setup.mjs > /dev/null
           curl -fsS http://127.0.0.1:8080/ | grep 'lang="fa"'
+          curl -fsS http://127.0.0.1:8080/ | grep 'id="home-journal-title"'
           curl -fsS http://127.0.0.1:8080/en.html | grep 'lang="en"'
           curl -fsSI http://127.0.0.1:8080/assets/site.mjs | grep -i 'content-type: text/javascript'
           curl -fsSI http://127.0.0.1:8080/assets/fonts/vazirmatn-arabic-wght-normal.woff2
@@ -45,6 +46,7 @@ jobs:
           curl -fsS http://127.0.0.1:8080/en/blog/category/security | grep '<h1>Security</h1>'
           curl -fsS http://127.0.0.1:8080/en/blog/first-ai-workflow | grep 'BlogPosting'
           curl -fsS http://127.0.0.1:8080/sitemap.xml | grep 'hreflang="en"'
+          curl -fsS http://127.0.0.1:8080/sitemap.xml | grep '<image:image><image:loc>'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/admin)" = 303
           curl -fsS http://127.0.0.1:8080/admin/setup | grep 'name="confirmation"'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/mcp)" = 404

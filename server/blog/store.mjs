@@ -149,7 +149,7 @@ export function openBlog(path, { seedContent = true } = {}) {
       return { items, total };
     },
     lookup(lang, slug) { return parse(db.prepare(`SELECT * FROM articles WHERE state='published' AND ${lang === 'en' ? 'en_slug' : 'fa_slug'}=?`).get(slug)); },
-    published() { return db.prepare("SELECT fa_slug,en_slug,modified FROM articles WHERE state='published'").all(); },
+    published() { return db.prepare("SELECT * FROM articles WHERE state='published' ORDER BY published DESC,id DESC").all().map(parse); },
     remove(id) { return Boolean(db.prepare('DELETE FROM articles WHERE id=?').run(id).changes); },
     uploadImage(data, declaredType) {
       const { id, type, width, height } = inspectImage(data, declaredType);
