@@ -46,7 +46,8 @@ jobs:
           curl -fsS http://127.0.0.1:8080/en/blog/category/security | grep '<h1>Security</h1>'
           curl -fsS http://127.0.0.1:8080/en/blog/first-ai-workflow | grep 'BlogPosting'
           curl -fsS http://127.0.0.1:8080/sitemap.xml | grep 'hreflang="en"'
-          curl -fsS http://127.0.0.1:8080/sitemap.xml | grep '<image:image><image:loc>'
+          curl -fsS http://127.0.0.1:8080/sitemap.xml | grep '<image:loc>'
+          curl -fsS http://127.0.0.1:8080/sitemap.xml | grep '<priority>1.0000</priority>'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/admin)" = 303
           curl -fsS http://127.0.0.1:8080/admin/setup | grep 'name="confirmation"'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/mcp)" = 404
