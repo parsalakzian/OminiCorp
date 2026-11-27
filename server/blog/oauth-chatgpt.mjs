@@ -3,10 +3,16 @@ import { makeKey, tokenHash } from '../installation.mjs';
 export const registrationPath = '/oauth/register';
 export const chatgptClientId = 'https://chatgpt.com/oauth/client.json';
 export const chatgptRedirect = 'https://chatgpt.com/connector_platform_oauth_redirect';
+export function validChatGPTPair(clientId, redirect) {
+  if (clientId === chatgptClientId) return redirect === chatgptRedirect;
+  const match = /^https:\/\/chatgpt\.com\/oauth\/([A-Za-z0-9_-]{1,128})\/client\.json$/.exec(clientId);
+  return Boolean(match && redirect === `https://chatgpt.com/connector/oauth/${match[1]}`);
+}
+
 const methods = ['none', 'client_secret_basic', 'client_secret_post'];
 const onlyCode = (values) => Array.isArray(values) && values.length === 1 && values[0] === 'code';
 const grants = (values) => Array.isArray(values) && values.includes('authorization_code') && values.every((value) => ['authorization_code', 'refresh_token'].includes(value));
-const record = (id, name, auth, secret, kind) => ({ id, name, redirect: chatgptRedirect, auth, secret: secret ? tokenHash(secret) : '', writeAccess: false, publishAccess: false, kind });
+const record = (id, name, auth, secret, kind, redirect = chatgptRedirect) => ({ id, name, redirect, auth, secret: secret ? tokenHash(secret) : '', writeAccess: false, publishAccess: false, kind });
 
 export function createChatGPTRegistration(store, fetchDocument = fetch) {
   const db = store.oauth;
@@ -14,9 +20,17 @@ export function createChatGPTRegistration(store, fetchDocument = fetch) {
     const settings = store.getSettings();
     return settings.mcp && settings.mcpChatGPT && Boolean(store.getOwner());
   };
-  let documentUntil = 0, validDocument = false, pending;
-  async function verifyDocument() {
-    const response = await fetchDocument(chatgptClientId, { redirect: 'error', signal: AbortSignal.timeout(4500), headers: { Accept: 'application/json' } });
+  function configuration() {
+    const { mcpCimdClient, mcpCimdCallback } = store.getSettings();
+    return { id: mcpCimdClient, redirect: mcpCimdCallback };
+  }
+  const matchesCimd = (id, redirect) => {
+    const config = configuration();
+    return id === config.id && redirect === config.redirect && validChatGPTPair(id, redirect);
+  };
+  let cache;
+  async function verifyDocument({ id, redirect }) {
+    const response = await fetchDocument(id, { redirect: 'error', signal: AbortSignal.timeout(4500), headers: { Accept: 'application/json' } });
     if (!response.ok || !response.headers.get('content-type')?.toLowerCase().startsWith('application/json') || !response.body) {
       await response.body?.cancel();
       return false;
@@ -35,25 +49,25 @@ export function createChatGPTRegistration(store, fetchDocument = fetch) {
     } finally { reader.releaseLock(); }
     const data = JSON.parse(Buffer.concat(parts).toString('utf8'));
     const available = data?.token_endpoint_auth_methods_supported ?? [data?.token_endpoint_auth_method];
-    return data?.client_id === chatgptClientId && onlyCode(data.response_types) &&
+    return data?.client_id === id && onlyCode(data.response_types) &&
       Array.isArray(data.grant_types) && data.grant_types.includes('authorization_code') &&
-      Array.isArray(data.redirect_uris) && data.redirect_uris.includes(chatgptRedirect) && Array.isArray(available) && available.includes('none');
+      Array.isArray(data.redirect_uris) && data.redirect_uris.includes(redirect) && Array.isArray(available) && available.includes('none');
   }
-  async function resolveCimd() {
-    if (!enabled()) return undefined;
-    if (Date.now() >= documentUntil) {
-      // One bounded request even if multiple authorization attempts arrive together.
-      pending ??= verifyDocument().then((valid) => {
-        validDocument = valid;
-        documentUntil = Date.now() + (valid ? 10 * 60000 : 15 * 1000);
-        return valid;
-      }).catch(() => { validDocument = false; documentUntil = Date.now() + 15000; return false; }).finally(() => { pending = undefined; });
-      if (!await pending) return undefined;
+  async function resolveCimd(id, redirect) {
+    if (!enabled() || !matchesCimd(id, redirect)) return undefined;
+    if (cache?.id !== id || cache?.redirect !== redirect) cache = { id, redirect, until: 0 };
+    const entry = cache;
+    if (Date.now() >= entry.until) {
+      // Coalesce requests and bind both positive and negative cache entries to the exact pair.
+      entry.pending ??= verifyDocument(entry).catch(() => false).then((valid) => {
+        entry.valid = valid;
+        entry.until = Date.now() + (valid ? 10 * 60000 : 15000);
+      }).finally(() => { entry.pending = undefined; });
+      await entry.pending;
     }
-    if (!enabled() || !validDocument) return undefined;
-    const client = record(chatgptClientId, 'ChatGPT (CIMD)', 'none', '', 'cimd');
-    db.addClient(client);
-    return db.getClient(chatgptClientId);
+    if (!entry.valid || !enabled() || !matchesCimd(id, redirect)) return undefined;
+    db.addClient(record(id, 'ChatGPT (CIMD)', 'none', '', 'cimd', redirect));
+    return db.getClient(id);
   }
   function register(data) {
     const auth = data?.token_endpoint_auth_method ?? 'client_secret_basic';
@@ -67,5 +81,5 @@ export function createChatGPTRegistration(store, fetchDocument = fetch) {
     return { data: { client_id: id, client_id_issued_at: Math.floor(Date.now() / 1000), ...(secret ? { client_secret: secret, client_secret_expires_at: 0 } : {}),
       redirect_uris: [chatgptRedirect], client_name: 'ChatGPT', token_endpoint_auth_method: auth, grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], scope: 'mcp' } };
   }
-  return { enabled, register, resolveCimd };
+  return { enabled, register, resolveCimd, matchesCimd };
 }

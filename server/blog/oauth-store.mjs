@@ -26,6 +26,7 @@ export function openOAuthStore(db, version) {
     countClients: (kind) => db.prepare('SELECT count(*) AS total FROM oauth_client WHERE kind=?').get(kind).total,
     hasClients: () => Boolean(db.prepare('SELECT 1 FROM oauth_client LIMIT 1').get()),
     addClient: ({ id, name, redirect, auth, secret, writeAccess, publishAccess, kind = 'manual' }) => db.prepare('INSERT OR IGNORE INTO oauth_client VALUES(?,?,?,?,?,?,?,?)').run(id, name, redirect, auth, secret, Number(writeAccess), Number(publishAccess), kind).changes === 1,
+    setDcrAccess: (id, write, publish) => db.prepare("UPDATE oauth_client SET writeAccess=?, publishAccess=? WHERE id=? AND kind='dcr'").run(Number(write), Number(write && publish), id).changes === 1,
     removeClient: (id) => db.prepare('DELETE FROM oauth_client WHERE id=?').run(id).changes === 1,
     getGrant: (hash, kind, now) => grant.get(hash, kind, now),
     putCode(value, now) { prune.run(now); put(value); },
