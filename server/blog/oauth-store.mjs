@@ -14,6 +14,9 @@ export function openOAuthStore(db, version) {
   if (version < 5) db.exec(`BEGIN IMMEDIATE;
     ALTER TABLE oauth_client ADD COLUMN kind TEXT NOT NULL DEFAULT 'manual' CHECK(kind IN ('manual','dcr','cimd'));
     PRAGMA user_version=5; COMMIT;`);
+  if (version < 6) db.exec(`BEGIN IMMEDIATE;
+    ALTER TABLE oauth_client ADD COLUMN redirects TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(redirects));
+    PRAGMA user_version=6; COMMIT;`);
   const find = db.prepare('SELECT * FROM oauth_client WHERE id=?');
   const grant = db.prepare('SELECT * FROM oauth_grant WHERE hash=? AND kind=? AND expires>?');
   const insert = db.prepare('INSERT INTO oauth_grant(hash,client_id,kind,expires,resource,owner_hash,redirect,challenge,flow) VALUES(?,?,?,?,?,?,?,?,?)');
@@ -22,11 +25,20 @@ export function openOAuthStore(db, version) {
   const put = ({ hash, client_id, kind, expires, resource, owner_hash, redirect = '', challenge = '', flow }) => insert.run(hash, client_id, kind, expires, resource, owner_hash, redirect, challenge, flow);
   return {
     getClient: (id) => find.get(id),
-    clients: () => db.prepare('SELECT id,name,redirect,auth,writeAccess,publishAccess,kind FROM oauth_client ORDER BY id').all(),
+    clients: () => db.prepare('SELECT id,name,redirect,auth,writeAccess,publishAccess,kind,redirects FROM oauth_client ORDER BY id').all(),
     countClients: (kind) => db.prepare('SELECT count(*) AS total FROM oauth_client WHERE kind=?').get(kind).total,
     hasClients: () => Boolean(db.prepare('SELECT 1 FROM oauth_client LIMIT 1').get()),
-    addClient: ({ id, name, redirect, auth, secret, writeAccess, publishAccess, kind = 'manual' }) => db.prepare('INSERT OR IGNORE INTO oauth_client VALUES(?,?,?,?,?,?,?,?)').run(id, name, redirect, auth, secret, Number(writeAccess), Number(publishAccess), kind).changes === 1,
-    setDcrAccess: (id, write, publish) => db.prepare("UPDATE oauth_client SET writeAccess=?, publishAccess=? WHERE id=? AND kind='dcr'").run(Number(write), Number(write && publish), id).changes === 1,
+    addClient: ({ id, name, redirect, auth, secret, writeAccess, publishAccess, kind = 'manual', redirects = [] }) => db.prepare('INSERT OR IGNORE INTO oauth_client VALUES(?,?,?,?,?,?,?,?,?)').run(id, name, redirect, auth, secret, Number(writeAccess), Number(publishAccess), kind, JSON.stringify(redirects)).changes === 1,
+    setClientAccess: (id, write, publish) => db.prepare("UPDATE oauth_client SET writeAccess=?, publishAccess=? WHERE id=?").run(Number(write), Number(write && publish), id).changes === 1,
+    rotateSecret(id, hash) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const updated = db.prepare("UPDATE oauth_client SET secret=? WHERE id=? AND kind='manual' AND auth!='none'").run(hash, id).changes === 1;
+        if (updated) db.prepare('DELETE FROM oauth_grant WHERE client_id=?').run(id);
+        db.exec('COMMIT');
+        return updated;
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
+    },
     removeClient: (id) => db.prepare('DELETE FROM oauth_client WHERE id=?').run(id).changes === 1,
     getGrant: (hash, kind, now) => grant.get(hash, kind, now),
     putCode(value, now) { prune.run(now); put(value); },

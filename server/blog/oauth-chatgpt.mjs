@@ -1,3 +1,4 @@
+import { authMethods } from './oauth-clients.mjs';
 import { makeKey, tokenHash } from '../installation.mjs';
 
 export const registrationPath = '/oauth/register';
@@ -9,12 +10,11 @@ export function validChatGPTPair(clientId, redirect) {
   return Boolean(match && redirect === `https://chatgpt.com/connector/oauth/${match[1]}`);
 }
 
-const methods = ['none', 'client_secret_basic', 'client_secret_post'];
 const onlyCode = (values) => Array.isArray(values) && values.length === 1 && values[0] === 'code';
 const grants = (values) => Array.isArray(values) && values.includes('authorization_code') && values.every((value) => ['authorization_code', 'refresh_token'].includes(value));
 const record = (id, name, auth, secret, kind, redirect = chatgptRedirect) => ({ id, name, redirect, auth, secret: secret ? tokenHash(secret) : '', writeAccess: false, publishAccess: false, kind });
 
-export function createChatGPTRegistration(store, fetchDocument = fetch) {
+export function createOAuthRegistration(store, fetchDocument = fetch) {
   const db = store.oauth;
   const enabled = () => {
     const settings = store.getSettings();
@@ -69,17 +69,24 @@ export function createChatGPTRegistration(store, fetchDocument = fetch) {
     db.addClient(record(id, 'ChatGPT (CIMD)', 'none', '', 'cimd', redirect));
     return db.getClient(id);
   }
+  const dcrAllowed = (redirect) => (enabled() && redirect === chatgptRedirect) || (store.getSettings().mcp && store.getSettings().mcpDcrCallbacks.includes(redirect));
+  const registrationEnabled = () => enabled() || (store.getSettings().mcp && store.getSettings().mcpDcrCallbacks.length > 0);
   function register(data) {
     const auth = data?.token_endpoint_auth_method ?? 'client_secret_basic';
-    if (!methods.includes(auth)) return { error: 'invalid_client_metadata' };
+    if (!authMethods.includes(auth)) return { error: 'invalid_client_metadata' };
     if (!onlyCode(data?.response_types ?? ['code']) || !grants(data?.grant_types ?? ['authorization_code']) || (data?.scope !== undefined && data.scope !== 'mcp')) return { error: 'invalid_client_metadata' };
-    if (!Array.isArray(data?.redirect_uris) || data.redirect_uris.length !== 1 || data.redirect_uris[0] !== chatgptRedirect) return { error: 'invalid_redirect_uri' };
+    const callbacks = data?.redirect_uris;
+    if (!Array.isArray(callbacks) || !callbacks.length || callbacks.length > 10 || new Set(callbacks).size !== callbacks.length || !callbacks.every(dcrAllowed)) return { error: 'invalid_redirect_uri' };
+    const [redirect, ...redirects] = callbacks;
     if (db.countClients('dcr') >= 100) return { error: 'temporarily_unavailable' };
-    const id = `chatgpt-${makeKey()}`;
+    const isChatGPT = redirect === chatgptRedirect;
+    const id = `${isChatGPT ? 'chatgpt' : 'dcr'}-${makeKey()}`;
+    const preferredName = typeof data.client_name === 'string' ? data.client_name.trim().slice(0, 100) : '';
+    const name = isChatGPT ? 'ChatGPT (DCR)' : (preferredName || new URL(redirect).hostname);
     const secret = auth === 'none' ? '' : makeKey();
-    db.addClient(record(id, 'ChatGPT (DCR)', auth, secret, 'dcr'));
+    db.addClient({ ...record(id, name, auth, secret, 'dcr', redirect), redirects });
     return { data: { client_id: id, client_id_issued_at: Math.floor(Date.now() / 1000), ...(secret ? { client_secret: secret, client_secret_expires_at: 0 } : {}),
-      redirect_uris: [chatgptRedirect], client_name: 'ChatGPT', token_endpoint_auth_method: auth, grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], scope: 'mcp' } };
+      redirect_uris: callbacks, client_name: name, token_endpoint_auth_method: auth, grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], scope: 'mcp' } };
   }
-  return { enabled, register, resolveCimd, matchesCimd };
+  return { enabled, registrationEnabled, dcrAllowed, register, resolveCimd, matchesCimd };
 }

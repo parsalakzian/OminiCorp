@@ -1,6 +1,7 @@
+import { callbackList, manualClient } from './oauth-clients.mjs';
 import { validChatGPTPair } from './oauth-chatgpt.mjs';
-import { authorizePath, createOAuth, localOAuthReturn, oauthClient } from './oauth.mjs';
-import { consentPage, oauthPanel } from './oauth-admin.mjs';
+import { authorizePath, createOAuth, localOAuthReturn } from './oauth.mjs';
+import { connectionsPage, connectionsPath, consentPage, endpointCard, mcpNavigation, newClientPage, newClientPath } from './oauth-admin.mjs';
 import { checkPassword, constantEqual as equal, makeKey as random, parseOrigin, passwordRecord, tokenHash, updateAiSecrets, updateSystem, validPassword } from '../installation.mjs';
 import { ZodError } from 'zod';
 import { aiSettingsPage, categoriesPage, categoryEditor, confirmCategoryDelete, confirmDelete, dashboard, editor, login, mediaLibrary, mcpSettingsPage, setupPage, systemPage } from './admin.mjs';
@@ -108,7 +109,7 @@ export function createBlog(options = {}) {
     const logged = session?.expires > Date.now() && session.ownerHash === owner?.hash;
     const home = '/admin';
     const mcpSettings = '/admin/system/mcp';
-    const mcpPage = (props = {}) => mcpSettingsPage({ origin, csrf: session.csrf, system, settings: store.getSettings(), oauthPanel: oauthPanel(origin, session.csrf, store.oauth.clients(), props.oauthSecret), ...props });
+    const mcpPage = (props = {}) => mcpSettingsPage({ origin, csrf: session.csrf, system, settings: store.getSettings(), navigation: mcpNavigation('settings'), endpoints: endpointCard(origin), ...props });
     if (method === 'POST' && !originAllowed(req, origin)) return res.writeHead(403).end();
     const readOnly = method === 'GET' || method === 'HEAD';
     if (path === '/admin/setup') {
@@ -158,7 +159,7 @@ export function createBlog(options = {}) {
     if (path === authorizePath && readOnly) {
       const pending = localOAuthReturn(path + url.search);
       const candidate = pending && await oauth.authRequest(url.searchParams);
-      if (!candidate) return res.writeHead(400).end('Invalid OAuth authorization request.');
+      if (!candidate) return res.writeHead(400).end('Invalid OAuth authorization request. Check the registered Client ID, exact Redirect URI, PKCE S256, scope mcp and the MCP resource URL.');
       if (!logged) return redirect(res, '/admin/login?' + new URLSearchParams({ next: pending }));
       // Chromium may enforce form-action on the POST's OAuth redirect as well.
       const callbackOrigin = new URL(candidate.redirect).origin;
@@ -220,14 +221,18 @@ export function createBlog(options = {}) {
       if (path === '/admin/settings') return redirect(res, '/admin/system');
       if (path === '/admin/system') return html(req, res, 200, systemPage({ origin, csrf, system, settings: status, notice: issue }));
       if (path === '/admin/system/ai') return html(req, res, 200, aiSettingsPage({ origin, csrf, system, settings: status, notice: issue }));
+      if (path === newClientPath) return html(req, res, 200, newClientPage({ origin, csrf }));
+      if (path === connectionsPath) {
+        const reveal = method === 'GET' && session.oauthReveal;
+        if (reveal) delete session.oauthReveal;
+        const secret = reveal && reveal.expires > Date.now() && equal(tokenHash(reveal.secret), store.oauth.getClient(reveal.id)?.secret) ? reveal.secret : undefined;
+        return html(req, res, 200, connectionsPage({ origin, csrf, clients: store.oauth.clients(), status, activeClient: oauth.clientEnabled, notice: issue, secret }));
+      }
       if (path === mcpSettings) {
-        const oauthReveal = method === 'GET' && session.oauthReveal;
-        if (oauthReveal) delete session.oauthReveal;
-        const oauthSecret = oauthReveal && oauthReveal.expires > Date.now() && equal(tokenHash(oauthReveal.secret), store.oauth.getClient(oauthReveal.id)?.secret) ? oauthReveal.secret : undefined;
         const reveal = method === 'GET' && session.mcpReveal;
         if (reveal) delete session.mcpReveal;
         const token = reveal && reveal.expires > Date.now() && equal(tokenHash(reveal.token), system.mcpHash) ? reveal.token : undefined;
-        return html(req, res, 200, mcpPage({ notice: issue, token, oauthSecret }));
+        return html(req, res, 200, mcpPage({ notice: issue, token }));
       }
       if (match?.[2] && item) return html(req, res, 200, confirmDelete({ origin, csrf, item }));
       if (match && !match[2]) { allowExternalCovers(res); return html(req, res, 200, editor({ origin, csrf, item: item || undefined, id, categories: store.categories() })); }
@@ -243,23 +248,28 @@ export function createBlog(options = {}) {
       const request = params.get('request');
       const decision = params.get('decision');
       const candidate = request && request.length <= 4096 && await oauth.authRequest(new URLSearchParams(request));
-      if (!candidate || !['allow','deny'].includes(decision)) return res.writeHead(400).end('Invalid OAuth authorization request.');
+      if (!candidate || !['allow','deny'].includes(decision)) return res.writeHead(400).end('Invalid OAuth authorization request. Check the registered Client ID, exact Redirect URI, PKCE S256, scope mcp and the MCP resource URL.');
       if (sessions.get(token) !== session || session.expires <= Date.now() || store.getOwner()?.hash !== owner.hash) return res.writeHead(403).end();
       return oauth.authorize(res, candidate, decision === 'deny', owner);
     }
-    if ([`${mcpSettings}/oauth`, `${mcpSettings}/oauth/remove`, `${mcpSettings}/oauth/access`].includes(path)) {
+    if ([`${mcpSettings}/oauth`, `${mcpSettings}/oauth/remove`, `${mcpSettings}/oauth/access`, `${mcpSettings}/oauth/rotate`].includes(path)) {
       if (sessions.get(token) !== session || session.expires <= Date.now() || store.getOwner()?.hash !== owner.hash) return res.writeHead(403).end();
       if (path.endsWith('/remove')) {
         if (!store.oauth.removeClient(params.get('client_id') || '')) return res.writeHead(404).end();
       } else if (path.endsWith('/access')) {
-        if (!store.oauth.setDcrAccess(params.get('client_id') || '', params.get('writeAccess') === 'on', params.get('publishAccess') === 'on')) return res.writeHead(404).end();
+        if (!store.oauth.setClientAccess(params.get('client_id') || '', params.get('writeAccess') === 'on', params.get('publishAccess') === 'on')) return res.writeHead(404).end();
+      } else if (path.endsWith('/rotate')) {
+        const id = params.get('client_id') || '';
+        const secret = random();
+        if (!store.oauth.rotateSecret(id, tokenHash(secret))) return res.writeHead(404).end();
+        session.oauthReveal = { id, secret, expires: Date.now() + 60_000 };
       } else {
         let value;
-        try { value = oauthClient(params); } catch { return html(req, res, 422, mcpPage({ error: 'شناسه، روش احراز هویت و نشانی بازگشت دقیق کلاینت را بررسی کنید.' })); }
-        if (!store.oauth.addClient(value.client)) return html(req, res, 409, mcpPage({ error: 'این شناسه قبلاً ثبت شده است.' }));
+        try { value = manualClient(params); } catch { return html(req, res, 422, newClientPage({ origin, csrf, data: params, error: 'شناسه، روش احراز، رمز کلاینت و نشانی‌های بازگشت را بررسی کنید.' })); }
+        if (!store.oauth.addClient(value.client)) return html(req, res, 409, newClientPage({ origin, csrf, data: params, error: 'این شناسه قبلاً ثبت شده است.' }));
         if (value.secret) session.oauthReveal = { id: value.client.id, secret: value.secret, expires: Date.now() + 60_000 };
       }
-      return redirect(res, `${mcpSettings}?notice=settings`);
+      return redirect(res, `${connectionsPath}?notice=settings`);
     }
     if (categoryMatch?.[2]) {
       try { if (!store.removeCategory(categoryKey)) return res.writeHead(404).end(); }
@@ -304,9 +314,10 @@ export function createBlog(options = {}) {
       const requested = (params.get('mcpOrigins') || '').split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
       try {
         const mcpOrigins = [...new Set(requested.map(parseOrigin))];
-        store.setSettings({ ...store.getSettings(), ...switches, mcpOrigins, mcpCimdClient, mcpCimdCallback });
+        const mcpDcrCallbacks = params.has('mcpDcrCallbacks') ? callbackList(params.get('mcpDcrCallbacks')) : status.mcpDcrCallbacks;
+        store.setSettings({ ...store.getSettings(), ...switches, mcpOrigins, mcpCimdClient, mcpCimdCallback, mcpDcrCallbacks });
       } catch {
-        return html(req, res, 422, mcpPage({ settings: { ...status, ...switches, mcpOrigins: requested.slice(0,10) }, error: 'حداکثر ۱۰ مبدأ معتبر وارد کنید: HTTPS یا HTTP روی localhost؛ بدون مسیر یا ستاره.' }));
+        return html(req, res, 422, mcpPage({ settings: { ...status, ...switches, mcpOrigins: requested.slice(0,10) }, error: 'مبدأهای CORS یا callbackهای DCR معتبر نیستند. حداکثر ۱۰ مبدأ و ۱۰ callback دقیق HTTPS وارد کنید.' }));
       }
       return redirect(res, '/admin/system/mcp?notice=settings');
     }
