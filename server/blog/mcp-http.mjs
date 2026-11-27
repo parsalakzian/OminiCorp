@@ -37,7 +37,7 @@ function guide(origin) {
   return documentPage({ lang: 'fa', origin, title: 'راهنمای اتصال MCP | اومینی‌کورپ', noindex: true, body: `<main class="desk-login"><section class="desk-card"><p class="journal-kicker" dir="ltr">OMINI / CONNECTION GUIDE</p><h1>راهنمای اتصال MCP</h1><p>بازکردن این نشانی در مرورگر، اتصال یا اعتبار توکن را بررسی نمی‌کند. اتصال را در کلاینت MCP انجام دهید.</p><dl><dt>نشانی سرور</dt><dd class="desk-endpoint" dir="ltr"><code>${endpoint}</code></dd><dt>نوع اتصال</dt><dd dir="ltr">Streamable HTTP</dd><dt>پروتکل پیام</dt><dd dir="ltr">JSON-RPC 2.0 · SSE / JSON</dd><dt>احراز هویت</dt><dd class="desk-endpoint" dir="ltr"><code>Authorization: Bearer &lt;token&gt;</code></dd></dl><p>توکن را در نشانی وارد نکنید. از توکن ثابت یا کلاینت OAuth از پیش ثبت‌شده با PKCE استفاده کنید.</p><p>برای تصویر از ابزار <code>upload_image</code> با لینک HTTPS یا مسیر باینری <code>POST /mcp/media</code> با همان توکن و مجوز نوشتن استفاده کنید.</p><a class="read-link" href="/admin/system/mcp">تنظیمات و راهنمای مدیر ↗</a></section></main>` });
 }
 
-export function createMcpHttp({ store, oauth, automation, readBytes, importImage }) {
+export function createMcpHttp({ store, oauth, automation, readBytes, importImage, report = () => {} }) {
   let count = 0, windowEnd = 0, activeWrites = 0;
   return async function mcp(req, res, binary = false) {
     const settings = store.getSettings();
@@ -50,7 +50,10 @@ export function createMcpHttp({ store, oauth, automation, readBytes, importImage
       return res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(req.method === 'HEAD' ? undefined : guide(siteUrl));
     }
     const origin = req.headers.origin;
-    if (origin && origin !== siteUrl && !settings.mcpOrigins.includes(origin)) return jsonError(res, 403, 'Origin is not allowed. Configure this exact origin in MCP settings.');
+    if (origin && origin !== siteUrl && !settings.mcpOrigins.includes(origin)) {
+      report('transport', 'origin_denied');
+      return jsonError(res, 403, 'Origin is not allowed. Configure this exact origin in MCP settings.');
+    }
     if (origin) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Expose-Headers', 'WWW-Authenticate, MCP-Protocol-Version, Mcp-Session-Id');
@@ -71,6 +74,7 @@ export function createMcpHttp({ store, oauth, automation, readBytes, importImage
     const fixed = bearer && constantEqual(tokenHash(bearer), mcpHash);
     const authClient = !fixed && bearer && oauth.authenticate(bearer);
     if (!fixed && !authClient) {
+      if (req.method === 'POST' && oauth.enabled()) report('transport', req.headers.authorization ? 'invalid_bearer' : 'missing_bearer');
       res.setHeader('WWW-Authenticate', 'Bearer realm="OminiCorp Journal"' + (bearer && oauth.enabled() ? ', error="invalid_token"' : '') + oauth.header());
       return jsonError(res, 401, bearer ? 'The Bearer token is invalid or was rotated.' : 'Send Authorization: Bearer <token>. If it was sent, check that your reverse proxy forwards it.');
     }
@@ -124,12 +128,16 @@ export function createMcpHttp({ store, oauth, automation, readBytes, importImage
       if (req.headers['mcp-protocol-version']) headers.set('MCP-Protocol-Version', req.headers['mcp-protocol-version']);
       const request = new Request(new URL('/mcp', siteUrl), { method: 'POST', headers, signal: client.signal });
       await handleMcp(request, body, { store, automation, importImage, canWrite, canPublish, writable, publishable, signal: client.signal, mode, oauthEnabled: oauth.enabled() }, async (response) => {
+        if (authClient && ['initialize', 'tools/list'].includes(body?.method)) report(body.method === 'initialize' ? 'initialize' : 'tools_list', String(response.status));
         for (const [name, value] of response.headers) res.setHeader(name, value);
         res.setHeader('Cache-Control', mode === 'sse' ? 'no-store, no-transform' : 'no-store');
         res.writeHead(response.status);
         if (!response.body) return res.end();
         await pipeline(Readable.fromWeb(response.body), res);
       });
+    } catch (error) {
+      if (authClient && !client.signal.aborted) report('transport', 'internal_error');
+      throw error;
     } finally {
       res.off('close', onClose);
       if (writable) activeWrites--;
