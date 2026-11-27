@@ -1,3 +1,10 @@
+import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
+import { once } from 'node:events';
+import { createApp } from '../server/app.mjs';
+import { passwordRecord } from '../server/installation.mjs';
+import { createBlog } from '../server/blog/routes.mjs';
+import { openBlog } from '../server/blog/store.mjs';
 import { expect, test } from '@playwright/test';
 import { seed } from '../server/blog/seed.mjs';
 
@@ -254,4 +261,53 @@ test('direct MCP navigation renders connection instructions rather than a token 
   await expect(page.getByText('Streamable HTTP', { exact: true })).toBeVisible();
   await expect(page.getByText('JSON-RPC 2.0 · SSE / JSON', { exact: true })).toBeVisible();
   await responsive(page);
+});
+
+
+test('OAuth consent survives admin login and redirects safely to the registered client in Chromium', async ({ page }) => {
+  const store = openBlog(':memory:');
+  const password = 'editorial-browser-fixture-only';
+  store.setOwner(await passwordRecord(password));
+  store.setRun({ at: 'bad legacy date', status: 'error' });
+  store.setSettings({ ...store.getSettings(), mcp: true });
+  const blog = createBlog({ store, timer: false });
+  const app = createApp({}, { blog });
+  app.listen(0, '127.0.0.1');
+  await once(app, 'listening');
+  const origin = `http://127.0.0.1:${app.address().port}`;
+  store.setSystem({ siteUrl: origin });
+  const receiver = createServer((req, res) => res.writeHead(200, { 'Content-Type': 'text/plain' }).end('OAuth callback received'));
+  receiver.listen(0, '127.0.0.1');
+  await once(receiver, 'listening');
+  const callback = `http://127.0.0.1:${receiver.address().port}/callback`;
+  const signIn = async () => {
+    await page.getByLabel('رمز عبور').fill(password);
+    await page.getByRole('button', { name: 'ورود به پنل' }).click();
+  };
+  try {
+    await page.goto(origin + '/admin/login');
+    await signIn();
+    await expect(page.getByRole('heading', { name: 'مدیریت مجله' })).toBeVisible();
+    await page.goto(origin + '/admin/system/mcp');
+    await page.getByLabel('نام نمایشی کلاینت').fill('Browser MCP fixture');
+    await page.getByLabel('شناسهٔ کلاینت (Client ID)').fill('browser-test');
+    await page.getByLabel('نشانی بازگشت (Redirect URI)').fill(callback);
+    await page.getByRole('button', { name: 'ثبت کلاینت OAuth' }).click();
+    await expect(page.getByText('Browser MCP fixture', { exact: true })).toBeVisible();
+    await page.context().clearCookies();
+    const query = new URLSearchParams({ client_id: 'browser-test', redirect_uri: callback, response_type: 'code', state: 'browser-state',
+      code_challenge: createHash('sha256').update('a'.repeat(43)).digest('base64url'), code_challenge_method: 'S256' });
+    await page.goto(origin + '/admin/oauth/authorize?' + query);
+    await expect(page).toHaveURL(/admin\/login\?next=/);
+    await signIn();
+    await expect(page.getByRole('heading', { name: 'اجازهٔ اتصال به MCP' })).toBeVisible();
+    await page.getByRole('button', { name: 'اجازه اتصال', exact: true }).click();
+    await expect(page).toHaveURL((destination) => destination.origin + destination.pathname === callback);
+    expect(new URL(page.url()).searchParams.get('state')).toBe('browser-state');
+    expect(new URL(page.url()).searchParams.get('code')).toMatch(/^[\w-]{43}$/);
+  } finally {
+    await page.close();
+    await Promise.all([new Promise((resolve) => app.close(resolve)), new Promise((resolve) => receiver.close(resolve))]);
+    await blog.close();
+  }
 });

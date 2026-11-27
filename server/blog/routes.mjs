@@ -1,3 +1,5 @@
+import { authorizePath, createOAuth, localOAuthReturn, oauthClient } from './oauth.mjs';
+import { consentPage, oauthPanel } from './oauth-admin.mjs';
 import { checkPassword, constantEqual as equal, makeKey as random, parseOrigin, passwordRecord, tokenHash, updateAiSecrets, updateSystem, validPassword } from '../installation.mjs';
 import { ZodError } from 'zod';
 import { aiSettingsPage, categoriesPage, categoryEditor, confirmCategoryDelete, confirmDelete, dashboard, editor, login, mediaLibrary, mcpSettingsPage, setupPage, systemPage } from './admin.mjs';
@@ -62,7 +64,8 @@ export function createBlog(options = {}) {
   const automation = options.automation || createAutomation(store, options.network);
   const sessions = new Map(), loginAttempts = new Map();
   let loginWindow = 0, totalAttempts = 0, pending, activeChecks = 0;
-  const mcp = createMcpHttp({ store, automation, readBytes, importImage: options.importImage || createImageImporter() });
+  const oauth = createOAuth(store, read);
+  const mcp = createMcpHttp({ store, oauth, automation, readBytes, importImage: options.importImage || createImageImporter() });
   const setCookie = (res, value, age, origin) => res.setHeader('Set-Cookie', `${cookieName}=${value}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${age}${origin.startsWith('https:') ? '; Secure' : ''}`);
   function originAllowed(req, origin) {
     if (['cross-site', 'same-site'].includes(req.headers['sec-fetch-site'])) return false;
@@ -103,6 +106,8 @@ export function createBlog(options = {}) {
     const session = sessions.get(token);
     const logged = session?.expires > Date.now() && session.ownerHash === owner?.hash;
     const home = '/admin';
+    const mcpSettings = '/admin/system/mcp';
+    const mcpPage = (props = {}) => mcpSettingsPage({ origin, csrf: session.csrf, system, settings: store.getSettings(), oauthPanel: oauthPanel(origin, session.csrf, store.oauth.clients(), props.oauthSecret), ...props });
     if (method === 'POST' && !originAllowed(req, origin)) return res.writeHead(403).end();
     const readOnly = method === 'GET' || method === 'HEAD';
     if (path === '/admin/setup') {
@@ -128,15 +133,18 @@ export function createBlog(options = {}) {
     }
     if (!owner) return redirect(res, '/admin/setup');
     if (path === '/admin/login') {
-      if (readOnly) return logged ? redirect(res, home) : html(req, res, 200, login(origin, '', true, url.searchParams.get('changed') === '1' ? notices.password : ''));
+      const next = localOAuthReturn(url.searchParams.get('next'));
+      if (readOnly) return logged ? redirect(res, next || home) : html(req, res, 200, login(origin, '', true, url.searchParams.get('changed') === '1' ? notices.password : '', next));
       if (method !== 'POST') return res.writeHead(405).end();
       if (req.headers['content-type']?.split(';')[0] !== 'application/x-www-form-urlencoded') return res.writeHead(415).end();
       const now = Date.now(), ip = req.socket.remoteAddress;
-      const raw = await read(req, 6000);
+      const raw = await read(req, 16000);
       if (raw === null) return res.writeHead(413).end();
-      if (!allowAttempt(ip, now)) return html(req, res, 429, login(origin, 'تعداد تلاش‌ها زیاد است. بعداً دوباره امتحان کنید.', true));
-      if (!await passwordWork(() => checkPassword(new URLSearchParams(raw).get('password'), owner)) || store.getOwner()?.hash !== owner.hash) {
-        return html(req, res, 401, login(origin, 'رمز عبور درست نیست.', true));
+      const loginParams = new URLSearchParams(raw);
+      const destination = localOAuthReturn(loginParams.get('next'));
+      if (!allowAttempt(ip, now)) return html(req, res, 429, login(origin, 'تعداد تلاش‌ها زیاد است. بعداً دوباره امتحان کنید.', true, '', destination));
+      if (!await passwordWork(() => checkPassword(loginParams.get('password'), owner)) || store.getOwner()?.hash !== owner.hash) {
+        return html(req, res, 401, login(origin, 'رمز عبور درست نیست.', true, '', destination));
       }
       loginAttempts.delete(ip);
       for (const [key, value] of sessions) if (value.expires <= now) sessions.delete(key);
@@ -144,7 +152,17 @@ export function createBlog(options = {}) {
       const key = random();
       sessions.set(key, { csrf: random(), expires: now + sessionAge * 1000, ownerHash: owner.hash });
       setCookie(res, key, sessionAge, origin);
-      return redirect(res, home);
+      return redirect(res, destination || home);
+    }
+    if (path === authorizePath && readOnly) {
+      const pending = localOAuthReturn(path + url.search);
+      const candidate = pending && oauth.authRequest(url.searchParams);
+      if (!candidate) return res.writeHead(400).end('Invalid OAuth authorization request.');
+      if (!logged) return redirect(res, '/admin/login?' + new URLSearchParams({ next: pending }));
+      // Chromium may enforce form-action on the POST's OAuth redirect as well.
+      const callbackOrigin = new URL(candidate.redirect).origin;
+      res.setHeader('Content-Security-Policy', res.getHeader('Content-Security-Policy').replace("form-action 'self'", `form-action 'self' ${callbackOrigin}`));
+      return html(req, res, 200, consentPage(origin, session.csrf, candidate.client, url.search.slice(1)));
     }
     if (!logged) return redirect(res, '/admin/login');
     const csrf = session.csrf;
@@ -201,11 +219,14 @@ export function createBlog(options = {}) {
       if (path === '/admin/settings') return redirect(res, '/admin/system');
       if (path === '/admin/system') return html(req, res, 200, systemPage({ origin, csrf, system, settings: status, notice: issue }));
       if (path === '/admin/system/ai') return html(req, res, 200, aiSettingsPage({ origin, csrf, system, settings: status, notice: issue }));
-      if (path === '/admin/system/mcp') {
+      if (path === mcpSettings) {
+        const oauthReveal = method === 'GET' && session.oauthReveal;
+        if (oauthReveal) delete session.oauthReveal;
+        const oauthSecret = oauthReveal && oauthReveal.expires > Date.now() && equal(tokenHash(oauthReveal.secret), store.oauth.getClient(oauthReveal.id)?.secret) ? oauthReveal.secret : undefined;
         const reveal = method === 'GET' && session.mcpReveal;
         if (reveal) delete session.mcpReveal;
         const token = reveal && reveal.expires > Date.now() && equal(tokenHash(reveal.token), system.mcpHash) ? reveal.token : undefined;
-        return html(req, res, 200, mcpSettingsPage({ origin, csrf, system, settings: status, notice: issue, token }));
+        return html(req, res, 200, mcpPage({ notice: issue, token, oauthSecret }));
       }
       if (match?.[2] && item) return html(req, res, 200, confirmDelete({ origin, csrf, item }));
       if (match && !match[2]) { allowExternalCovers(res); return html(req, res, 200, editor({ origin, csrf, item: item || undefined, id, categories: store.categories() })); }
@@ -217,6 +238,26 @@ export function createBlog(options = {}) {
     if (raw === null) return res.writeHead(413).end();
     const params = new URLSearchParams(raw);
     if (!equal(params.get('csrf'), csrf)) return res.writeHead(403).end();
+    if (path === authorizePath) {
+      const request = params.get('request');
+      const decision = params.get('decision');
+      const candidate = request && request.length <= 4096 && oauth.authRequest(new URLSearchParams(request));
+      if (!candidate || !['allow','deny'].includes(decision)) return res.writeHead(400).end('Invalid OAuth authorization request.');
+      if (sessions.get(token) !== session || session.expires <= Date.now() || store.getOwner()?.hash !== owner.hash) return res.writeHead(403).end();
+      return oauth.authorize(res, candidate, decision === 'deny', owner);
+    }
+    if (path === `${mcpSettings}/oauth` || path === `${mcpSettings}/oauth/remove`) {
+      if (sessions.get(token) !== session || session.expires <= Date.now() || store.getOwner()?.hash !== owner.hash) return res.writeHead(403).end();
+      if (path.endsWith('/remove')) {
+        if (!store.oauth.removeClient(params.get('client_id') || '')) return res.writeHead(404).end();
+      } else {
+        let value;
+        try { value = oauthClient(params); } catch { return html(req, res, 422, mcpPage({ error: 'شناسه، روش احراز هویت و نشانی بازگشت دقیق کلاینت را بررسی کنید.' })); }
+        if (!store.oauth.addClient(value.client)) return html(req, res, 409, mcpPage({ error: 'این شناسه قبلاً ثبت شده است.' }));
+        if (value.secret) session.oauthReveal = { id: value.client.id, secret: value.secret, expires: Date.now() + 60_000 };
+      }
+      return redirect(res, `${mcpSettings}?notice=settings`);
+    }
     if (categoryMatch?.[2]) {
       try { if (!store.removeCategory(categoryKey)) return res.writeHead(404).end(); }
       catch (error) {
@@ -257,7 +298,7 @@ export function createBlog(options = {}) {
         const mcpOrigins = [...new Set(requested.map(parseOrigin))];
         store.setSettings({ ...store.getSettings(), ...switches, mcpOrigins });
       } catch {
-        return html(req, res, 422, mcpSettingsPage({ origin, csrf, system, settings: { ...status, ...switches, mcpOrigins: requested.slice(0,10) }, error: 'حداکثر ۱۰ مبدأ معتبر وارد کنید: HTTPS یا HTTP روی localhost؛ بدون مسیر یا ستاره.' }));
+        return html(req, res, 422, mcpPage({ settings: { ...status, ...switches, mcpOrigins: requested.slice(0,10) }, error: 'حداکثر ۱۰ مبدأ معتبر وارد کنید: HTTPS یا HTTP روی localhost؛ بدون مسیر یا ستاره.' }));
       }
       return redirect(res, '/admin/system/mcp?notice=settings');
     }
@@ -270,7 +311,7 @@ export function createBlog(options = {}) {
       return redirect(res, `/admin/system/mcp${revoke ? '?notice=revoked' : ''}`);
     }
     if (path === '/admin/password') {
-      const failure = (status, passwordError) => html(req, res, status, systemPage({ origin, csrf, system, settings: status, passwordError }));
+      const failure = (code, passwordError) => html(req, res, code, systemPage({ origin, csrf, system, settings: status, passwordError }));
       const candidate = params.get('password');
       if (!validPassword(candidate) || candidate !== params.get('confirmation')) return failure(422, 'رمز جدید و تکرار آن باید یکسان و بین ۱۶ تا ۲۵۶ کاراکتر باشند.');
       const ip = req.socket.remoteAddress;
@@ -305,6 +346,7 @@ export function createBlog(options = {}) {
     const path = url.pathname;
     if (path === '/admin/' || /^\/(?:en\/)?blog(?:\/category\/[a-z0-9-]+)?\/$/.test(path)) return redirect(res, path.slice(0, -1) + url.search, 308);
     if (path === '/mcp' || path === '/mcp/' || path === '/mcp/media' || path === '/mcp/media/') return mcp(req, res, path.startsWith('/mcp/media'));
+    if (await oauth.route(req, res, url) !== false) return;
     const media = mediaFromPath(path);
     if (media) return sendImage(req, res, ['GET', 'HEAD'].includes(req.method) && store.getSettings().enabled ? store.getImage(media, true) : undefined);
     if (path === '/admin' || path.startsWith('/admin/')) return admin(req, res, url);
@@ -321,7 +363,7 @@ export function createBlog(options = {}) {
     const origin = store.getSystem().siteUrl;
     if (!['GET', 'HEAD'].includes(req.method)) return res.writeHead(405, { Allow: 'GET, HEAD' }).end();
     res.setHeader('Cache-Control', 'public, max-age=60');
-    if (path === '/robots.txt') return res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }).end(`User-agent: *\nDisallow: /admin\nDisallow: /mcp\nSitemap: ${origin}/sitemap.xml\n`);
+    if (path === '/robots.txt') return res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }).end(`User-agent: *\nDisallow: /admin\nDisallow: /mcp\nDisallow: /oauth\nSitemap: ${origin}/sitemap.xml\n`);
     const enabled = store.getSettings().enabled;
     if (path === '/sitemap.xml') return publicResponse(req, res, 200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'no-cache' }, sitemap(origin, { enabled, articles: enabled ? store.published() : [], categories: enabled ? store.categories() : [] }));
     const lang = blog[1] ? 'en' : 'fa';

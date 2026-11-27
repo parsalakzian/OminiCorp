@@ -4,14 +4,18 @@ import { coverSchema, languages } from './schema.mjs';
 import { categoryThemes, maxCategories } from './categories.mjs';
 import { pagination } from './pagination.mjs';
 export const adminCsrf = (value) => `<input type="hidden" name="csrf" value="${escape(value)}">`;
-const formatDate = (value) => value ? new Intl.DateTimeFormat('fa-IR', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(value)) : '—';
+const deskDate = new Intl.DateTimeFormat('fa-IR', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
+const formatDate = (value) => {
+  const date = value ? new Date(value) : undefined;
+  return date && Number.isFinite(date.getTime()) ? deskDate.format(date) : '—';
+};
 const selected = (match) => match ? ' selected' : '';
 const checked = (match) => match ? ' checked' : '';
 const message = (value, error = false) => value ? `<p class="desk-notice${error ? ' is-error' : ''}" role="${error ? 'alert' : 'status'}">${escape(value)}</p>` : '';
 const logo = '<img src="/assets/media/logo.webp" width="42" height="31" alt=""><span><strong>OMINICORP</strong><small>EDITORIAL DESK</small></span>';
 
-export function login(origin, error, enabled, notice) {
-  return documentPage({ lang: 'fa', origin, title: 'ورود به تحریریه | اومینی‌کورپ', noindex: true, body: `<main class="desk-login"><section class="desk-card"><a href="/blog" class="desk-brand" dir="ltr">${logo}</a><p class="journal-kicker" dir="ltr">01 / ACCESS</p><h1>ورود به تحریریه</h1><p>میز کار مجلهٔ فناوری اومینی‌کورپ</p>${message(notice)}${message(error, true)}${enabled ? '<form method="post" action="/admin/login"><label class="desk-field">رمز عبور<input type="password" name="password" dir="ltr" autocomplete="current-password" required maxlength="256"></label><button class="button button-primary" type="submit">ورود به پنل</button></form>' : '<p class="desk-notice">ورود به پنل تا زمانی که رمز میزبان تنظیم نشده غیرفعال است.</p>'}<a class="read-link" href="/blog">بازگشت به مجله ↗</a></section></main>` });
+export function login(origin, error, enabled, notice, next) {
+  return documentPage({ lang: 'fa', origin, title: 'ورود به تحریریه | اومینی‌کورپ', noindex: true, body: `<main class="desk-login"><section class="desk-card"><a href="/blog" class="desk-brand" dir="ltr">${logo}</a><p class="journal-kicker" dir="ltr">01 / ACCESS</p><h1>ورود به تحریریه</h1><p>میز کار مجلهٔ فناوری اومینی‌کورپ</p>${message(notice)}${message(error, true)}${enabled ? `<form method="post" action="/admin/login">${next ? `<input type="hidden" name="next" value="${escape(next)}">` : ''}<label class="desk-field">رمز عبور<input type="password" name="password" dir="ltr" autocomplete="current-password" required maxlength="256"></label><button class="button button-primary" type="submit">ورود به پنل</button></form>` : '<p class="desk-notice">ورود به پنل تا زمانی که رمز میزبان تنظیم نشده غیرفعال است.</p>'}<a class="read-link" href="/blog">بازگشت به مجله ↗</a></section></main>` });
 }
 
 function desk(origin, csrf, tab, title, intro, html) {
@@ -21,7 +25,7 @@ function desk(origin, csrf, tab, title, intro, html) {
 
 const runLabel = (item) => ({ running: 'در حال اجرا', complete: 'کامل', partial: 'تکمیل با خطا', error: 'خطا در منبع یا API', unconfigured: 'تنظیمات ناقص', disabled: 'غیرفعال' })[item] || 'هنوز اجرا نشده';
 export function dashboard({ origin, csrf, items, total, articleCount, published, run, settings, notice, page, query, state, section, categories }) {
-  const pageUrl = (number) => `/admin?${new URLSearchParams({ page: number, q: query, state, section, categories })}`;
+  const pageUrl = (number) => `/admin?${new URLSearchParams({ page: number, q: query, state, section })}`;
   const cards = [['کل مقاله‌ها', articleCount], ['منتشر شده', published], ['پیش‌نویس', articleCount - published]];
   return desk(origin, csrf, 'dashboard', 'مدیریت مجله', 'مقاله‌های فارسی و انگلیسی، یک چرخهٔ انتشار.', `<div class="desk-metrics">${cards.map(([label, count], i) => `<div class="desk-card"><small dir="ltr">0${i + 1} / JOURNAL</small><strong>${new Intl.NumberFormat('fa').format(count)}</strong><p>${label}</p></div>`).join('')}</div>${message(notice)}<section class="desk-card"><div class="desk-section-head"><div><h2>مقاله‌ها</h2><p>ویرایش، انتشار و مدیریت نسخه‌های هر دو زبان.</p></div><a class="button button-primary" href="/admin/articles/new">+ مقالهٔ جدید</a></div><form class="desk-filter" action="/admin" method="get" role="search">${field('جست‌وجوی مقاله', 'q', query, 'type="search" maxlength="100"')}
   <label class="desk-field">وضعیت<select name="state"><option value="">همهٔ وضعیت‌ها</option><option value="draft"${selected(state === 'draft')}>پیش‌نویس</option><option value="published"${selected(state === 'published')}>منتشر شده</option></select></label>
@@ -123,10 +127,10 @@ export function aiSettingsPage({ origin, csrf, system: s, settings: a, notice, e
   </div><div class="desk-save"><button class="button button-primary" type="submit">ذخیرهٔ تنظیمات هوش مصنوعی</button></div></form>`);
 }
 
-export function mcpSettingsPage({ origin, csrf, system: s, settings, notice, error, token }) {
+export function mcpSettingsPage({ origin, csrf, system: s, settings, notice, error, token, oauthPanel = '' }) {
   const showToken = token ? `<div class="desk-token" data-mcp-reveal><p><strong>توکن جدید آماده است.</strong> الان آن را کپی کنید؛ بعد از خروج یا بارگذاری مجدد، دوباره نمایش داده نمی‌شود.</p><div>${field('توکن جدید MCP', '', token, 'readonly dir="ltr" autocomplete="off" data-mcp-token')}<button type="button" class="button button-muted" data-copy-mcp hidden>کپی توکن</button></div><p role="status" data-mcp-copy-status></p></div>` : '';
   return systemFrame({ origin, csrf, active: 'mcp', title: 'تنظیمات MCP', intro: 'دسترسی کلاینت‌ها و مدیریت توکن اتصال.', notice, error }, `<div class="desk-locales">
   <section class="desk-card desk-editor"><h2>دسترسی سرور</h2><p class="desk-endpoint" dir="ltr"><code>${escape(origin)}/mcp</code></p><a class="read-link" href="/mcp">راهنمای اتصال ↗</a><form method="post" action="/admin/system/mcp" class="desk-editor">${adminCsrf(csrf)}${control('سرور MCP', 'فعال‌کردن اتصال کلاینت با Bearer token.', 'mcp', settings.mcp)}${control('نوشتن از طریق MCP', 'ساخت، ویرایش، حذف و تولید پیش‌نویس؛ بارگذاری و مدیریت تصاویر.', 'mcpWrite', settings.mcpWrite)}${control('انتشار از طریق MCP', 'تغییر مقالهٔ منتشرشده و مدیریت دسته‌های عمومی؛ به دسترسی نوشتن نیاز دارد.', 'mcpPublish', settings.mcpPublish)}${area('مبدأهای مجاز کلاینت مرورگری (اختیاری، هر مبدأ یک خط)', 'mcpOrigins', settings.mcpOrigins.join('\n'), 'dir="ltr" rows="3" maxlength="3510" placeholder="http://localhost:6274"')}<p>فقط اگر کلاینت از داخل مرورگر و مبدأ دیگری وصل می‌شود، مبدأ دقیق آن را اضافه کنید. هیچ مبدأیی بدون توکن به ابزارها دسترسی ندارد.</p><div class="desk-save"><button class="button button-primary" type="submit">ذخیرهٔ دسترسی MCP</button></div></form></section>
   <section class="desk-card desk-editor"><h2>توکن اتصال</h2><p>${s.mcpHash ? 'توکن فعال است؛ مقدار قبلی قابل مشاهده نیست.' : 'هنوز توکنی ایجاد نشده است.'}</p>${showToken}<p>ساخت توکن جدید، توکن قبلی را بلافاصله نامعتبر می‌کند.</p><div class="desk-save"><form method="post" action="/admin/system/mcp/token">${adminCsrf(csrf)}<button class="button button-outline" type="submit">${s.mcpHash ? 'تعویض توکن با توکن تصادفی' : 'ساخت توکن تصادفی'}</button></form>${s.mcpHash ? `<form method="post" action="/admin/system/mcp/revoke">${adminCsrf(csrf)}<button class="button button-muted" type="submit">لغو توکن</button></form>` : ''}</div></section>
-  </div>`);
+  ${oauthPanel}</div>`);
 }

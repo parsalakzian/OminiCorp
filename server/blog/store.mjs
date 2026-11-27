@@ -1,3 +1,4 @@
+import { openOAuthStore } from './oauth-store.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -15,7 +16,7 @@ export function openBlog(path, { seedContent = true } = {}) {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA busy_timeout=4000; PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (![0, 1, 2, 3].includes(version)) { db.close(); throw new Error('Unsupported blog schema version'); }
+  if (![0, 1, 2, 3, 4].includes(version)) { db.close(); throw new Error('Unsupported blog schema version'); }
   if (!version) db.exec(`BEGIN IMMEDIATE;
     CREATE TABLE articles (id INTEGER PRIMARY KEY, state TEXT NOT NULL CHECK(state IN ('draft','published')),
       section TEXT NOT NULL, fa_slug TEXT NOT NULL UNIQUE, en_slug TEXT NOT NULL UNIQUE,
@@ -54,6 +55,7 @@ export function openBlog(path, { seedContent = true } = {}) {
       db.exec('PRAGMA user_version=3; COMMIT;');
     } catch (error) { db.exec('ROLLBACK'); db.close(); throw error; }
   }
+  const oauth = openOAuthStore(db, version);
   const findCategory = (slug) => db.prepare('SELECT * FROM categories WHERE slug=?').get(slug);
   const categories = (admin = false) => db.prepare(`SELECT categories.*, (SELECT count(*) FROM articles
     WHERE section=categories.slug AND (?=1 OR state='published')) AS count FROM categories ORDER BY position, slug`).all(Number(admin));
@@ -164,6 +166,7 @@ export function openBlog(path, { seedContent = true } = {}) {
         FROM media ORDER BY created DESC, id DESC LIMIT ? OFFSET ?`).all(size, (page - 1) * size).map(mediaInfo);
       return { items, total };
     },
+    oauth,
     imageSize(id) { return db.prepare('SELECT width,height FROM media WHERE id=?').get(id); },
     getImage(id, publicOnly = false) {
       return db.prepare(`SELECT type,size,data FROM media WHERE id=? AND (?=0 OR EXISTS (
